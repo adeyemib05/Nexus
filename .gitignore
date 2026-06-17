@@ -1,4 +1,11 @@
-.env
 node_modules/
 dist/
+.env
+*.js.map
 .DS_Store
+backend/nexus.db
+*.db-shm
+*.db-wal
+coverage/
+.cache/
+frontend/dist/

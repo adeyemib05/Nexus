@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { font-family: 'Inter', sans-serif; }
+  body {
+    background-color: #06090F;
+    color: #F1F5F9;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  * { scrollbar-width: thin; scrollbar-color: #1e293b #06090F; }
+  *::-webkit-scrollbar { width: 5px; height: 5px; }
+  *::-webkit-scrollbar-track { background: #06090F; }
+  *::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-nexus-depth border border-white/[0.06] rounded-xl shadow-card;
+  }
+  .stat-label {
+    @apply text-[10px] font-semibold uppercase tracking-[0.15em] 
+           text-nexus-textMuted font-display;
+  }
+  .price-value {
+    @apply font-mono text-nexus-textPrimary tabular-nums;
+  }
+  .regime-badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full 
+           text-[11px] font-bold font-display tracking-widest uppercase;
+  }
+  .nexus-divider {
+    @apply flex items-center gap-3 my-4;
+  }
+  .nexus-divider::before,
+  .nexus-divider::after {
+    content: '';
+    @apply flex-1 border-t border-white/[0.06];
+  }
+}
