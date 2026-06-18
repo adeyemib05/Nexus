@@ -22,6 +22,19 @@ export default function Layout({ children }: LayoutProps) {
       <aside className="w-64 bg-nexus-depth border-r border-white/[0.06] flex flex-col">
         <div className="h-16 flex items-center px-6 border-b border-white/[0.06]">
           <h1 className="font-display font-bold text-xl tracking-wider text-nexus-accent flex items-center gap-2">
+<svg width="22" height="22" viewBox="0 0 44 52" fill="none">
+  <line x1="22" y1="26" x2="6" y2="8" stroke="#00C8FF" strokeWidth="1.5" opacity="0.85" />
+  <line x1="22" y1="26" x2="6" y2="44" stroke="#00C8FF" strokeWidth="1.5" opacity="0.85" />
+  <line x1="22" y1="26" x2="38" y2="4" stroke="#00C8FF" strokeWidth="1.5" opacity="0.6" />
+  <line x1="22" y1="26" x2="38" y2="48" stroke="#00C8FF" strokeWidth="1.5" opacity="0.6" />
+  <line x1="22" y1="26" x2="36" y2="26" stroke="#00C8FF" strokeWidth="1.5" opacity="0.4" />
+  <circle cx="6" cy="8" r="3" fill="#00C8FF" />
+  <circle cx="6" cy="44" r="3" fill="#00C8FF" />
+  <circle cx="38" cy="4" r="2.5" fill="#00C8FF" opacity="0.7" />
+  <circle cx="38" cy="48" r="2.5" fill="#00C8FF" opacity="0.7" />
+  <circle cx="36" cy="26" r="2" fill="#00C8FF" opacity="0.5" />
+  <circle cx="22" cy="26" r="5" fill="#00C8FF" />
+</svg>
             <span>NEXUS</span>
             <span className="text-[10px] bg-nexus-accent/10 text-nexus-accent px-1.5 py-0.5 rounded uppercase">v1.0</span>
           </h1>
