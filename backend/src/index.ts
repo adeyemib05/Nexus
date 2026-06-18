@@ -92,3 +92,18 @@ setTimeout(async () => {
     console.error('[SIGNAL TEST] Failed:', err.message);
   }
 }, 3000);
+setTimeout(async () => {
+  try {
+    const { BitgetRESTClient } = await import('./services/bitgetREST');
+    const { db } = await import('./agents/database');
+    const { BacktestEngine } = await import('./backtest/backtestEngine');
+
+    const restClient = BitgetRESTClient.create();
+    const engine = new BacktestEngine(restClient, db);
+    const result = await engine.run({ symbol: 'BTCUSDT', granularity: '1H', days: 7 });
+
+    console.log(`[BACKTEST TEST] ${result.totalTrades} trades, Sharpe: ${result.sharpeRatio}`);
+  } catch (err) {
+    console.error('[BACKTEST TEST] Failed:', err.message);
+  }
+}, 6000);
