@@ -2,6 +2,16 @@ import dotenv from 'dotenv';
 // dotenv.config() must be at the very top
 dotenv.config();
 
+import { BitgetWebSocket } from './services/bitgetWS';
+import { AgentHubClient } from './services/agentHubClient';
+import { RiskManager } from './agents/riskManager';
+import { StrategyRouter } from './agents/strategyRouter';
+import { ExecutionEngine } from './agents/executionEngine';
+import { NLExplainer } from './agents/nlExplainer';
+import { AgentCycle } from './agents/agentCycle';
+import { db } from './agents/database';
+import { initState } from './state';
+
 import express from 'express';
 import cors from 'cors';
 import { BitgetRESTClient } from './services/bitgetREST';
@@ -39,7 +49,19 @@ app.get('/api/health', (_req, res) => {
 
 // Routes mounted in Phase 7
 
-// Services initialized in Phase 6
+const _bitgetREST = BitgetRESTClient.create();
+const _bitgetWS = new BitgetWebSocket(AGENT_SYMBOL);
+const _hubClient = new AgentHubClient();
+const _riskMgr = new RiskManager();
+const _router = new StrategyRouter();
+const _execution = new ExecutionEngine(_bitgetREST, db);
+const _explainer = new NLExplainer();
+const _agent = new AgentCycle(_bitgetREST, _bitgetWS, _riskMgr, _router, _execution, _explainer, _hubClient, db);
+
+initState(_agent, db, _bitgetREST, _bitgetWS);
+
+_bitgetWS.connect();
+setTimeout(() => _agent.start(), 3000);
 
 app.listen(PORT, () => {
   console.log(`🚀 NEXUS Backend — port ${PORT}`);
