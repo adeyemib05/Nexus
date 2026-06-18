@@ -70,3 +70,25 @@ app.listen(PORT, () => {
     console.log('✅ Service layer ready\n');
   }, 1000);
 });
+setTimeout(async () => {
+  try {
+    const { BitgetRESTClient } = await import('./services/bitgetREST');
+    const { AgentHubClient } = await import('./services/agentHubClient');
+    const { generateMockCandles } = await import('./services/mockData');
+    const { computeRegime } = await import('./signals/signalFusion');
+
+    const restClient = BitgetRESTClient.create();
+    const hubClient = new AgentHubClient();
+    const mockCandles = generateMockCandles(200, '1H');
+    const regime = await computeRegime(mockCandles, restClient, hubClient, 'BTCUSDT');
+
+    console.log('\n🔬 Signal Test:');
+    regime.signals.forEach((s) => {
+      console.log(`  ${s.label.padEnd(20)} score:${s.score.toFixed(3)} conf:${(s.confidence * 100).toFixed(0)}% src:${s.source}`);
+    });
+    console.log(`  ► Regime: ${regime.regime} (${regime.confidence}%)`);
+    console.log(`  ► ${regime.reasoning}\n`);
+  } catch (err: any) {
+    console.error('[SIGNAL TEST] Failed:', err.message);
+  }
+}, 3000);
