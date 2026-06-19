@@ -125,7 +125,7 @@ setTimeout(async () => {
     const result = await engine.run({ symbol: 'BTCUSDT', granularity: '1H', days: 7 });
 
     console.log(`[BACKTEST TEST] ${result.totalTrades} trades, Sharpe: ${result.sharpeRatio}`);
-  } catch (err) {
+  } catch (err: any) {
     console.error('[BACKTEST TEST] Failed:', err.message);
   }
 }, 6000);
