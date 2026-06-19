@@ -49,7 +49,14 @@ app.get('/api/health', (_req, res) => {
       uptime: process.uptime(),
       timestamp: Date.now(),
       symbol: AGENT_SYMBOL,
-      mode: AGENT_MODE
+      mode: AGENT_MODE,
+      services: {
+  bitgetWS: _bitgetWS?.isConnected() || false,
+  qwen: !!(process.env.QWEN_API_KEY && !process.env.QWEN_API_KEY.includes('YOUR')),
+  gemini: !!(process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes('YOUR')),
+  bitgetApi: !!(process.env.BITGET_API_KEY && !process.env.BITGET_API_KEY.includes('YOUR')),
+},
+agent: _agent?.getState()
     },
     timestamp: Date.now()
   });
