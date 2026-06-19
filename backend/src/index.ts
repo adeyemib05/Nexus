@@ -2,6 +2,14 @@ import dotenv from 'dotenv';
 // dotenv.config() must be at the very top
 dotenv.config();
 
+import agentRouter from './routes/agent';
+import signalsRouter from './routes/signals';
+import regimeRouter from './routes/regime';
+import tradesRouter from './routes/trades';
+import performanceRouter from './routes/performance';
+import backtestRouter from './routes/backtest';
+import streamRouter from './routes/stream';
+
 import { BitgetWebSocket } from './services/bitgetWS';
 import { AgentHubClient } from './services/agentHubClient';
 import { RiskManager } from './agents/riskManager';
@@ -62,6 +70,14 @@ initState(_agent, db, _bitgetREST, _bitgetWS);
 
 _bitgetWS.connect();
 setTimeout(() => _agent.start(), 3000);
+
+app.use('/api/agent', agentRouter);
+app.use('/api/signals', signalsRouter);
+app.use('/api/regime', regimeRouter);
+app.use('/api/trades', tradesRouter);
+app.use('/api/performance', performanceRouter);
+app.use('/api/backtest', backtestRouter);
+app.use('/api/stream', streamRouter);
 
 app.listen(PORT, () => {
   console.log(`🚀 NEXUS Backend — port ${PORT}`);
