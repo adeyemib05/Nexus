@@ -47,6 +47,25 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+app.get('/api/ticker', async (_req, res) => {
+  try {
+    let ticker = _bitgetWS?.getLastTicker() || null;
+    if (!ticker) {
+      try {
+        ticker = await _bitgetREST.getTicker(AGENT_SYMBOL);
+      } catch {
+        ticker = {
+          symbol: AGENT_SYMBOL, price: 0, change24h: 0, changePct24h: 0,
+          high24h: 0, low24h: 0, volume24h: 0, timestamp: Date.now(),
+        };
+      }
+    }
+    res.json({ success: true, data: ticker, timestamp: Date.now() });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message, timestamp: Date.now() });
+  }
+});
+
 // Routes mounted in Phase 7
 
 const _bitgetREST = BitgetRESTClient.create();
