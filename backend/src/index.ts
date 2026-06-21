@@ -41,7 +41,13 @@ app.get('/api/health', (_req, res) => {
       uptime: process.uptime(),
       timestamp: Date.now(),
       symbol: AGENT_SYMBOL,
-      mode: AGENT_MODE
+      mode: AGENT_MODE,services: {
+  bitgetWS: _bitgetWS?.isConnected() || false,
+  qwen: !!(process.env.QWEN_API_KEY && !process.env.QWEN_API_KEY.includes('YOUR')),
+  gemini: !!(process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes('YOUR')),
+  bitgetApi: !!(process.env.BITGET_API_KEY && !process.env.BITGET_API_KEY.includes('YOUR')),
+},
+agent: _agent?.getState()
     },
     timestamp: Date.now()
   });
@@ -81,6 +87,14 @@ initState(_agent, db, _bitgetREST, _bitgetWS);
 
 _bitgetWS.connect();
 setTimeout(() => _agent.start(), 3000);
+
+app.use('/api/agent', agentRouter);
+app.use('/api/signals', signalsRouter);
+app.use('/api/regime', regimeRouter);
+app.use('/api/trades', tradesRouter);
+app.use('/api/performance', performanceRouter);
+app.use('/api/backtest', backtestRouter);
+app.use('/api/stream', streamRouter);
 
 app.listen(PORT, () => {
   console.log(`🚀 NEXUS Backend — port ${PORT}`);
