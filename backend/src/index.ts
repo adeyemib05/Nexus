@@ -2,6 +2,14 @@ import dotenv from 'dotenv';
 // dotenv.config() must be at the very top
 dotenv.config();
 
+import agentRouter from './routes/agent';
+import signalsRouter from './routes/signals';
+import regimeRouter from './routes/regime';
+import tradesRouter from './routes/trades';
+import performanceRouter from './routes/performance';
+import backtestRouter from './routes/backtest';
+import streamRouter from './routes/stream';
+
 import { BitgetWebSocket } from './services/bitgetWS';
 import { AgentHubClient } from './services/agentHubClient';
 import { RiskManager } from './agents/riskManager';
