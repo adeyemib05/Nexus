@@ -170,11 +170,3 @@ setTimeout(async () => {
     console.error('[BACKTEST TEST] Failed:', err.message);
   }
 }, 6000);
-setTimeout(async () => {
-  try {
-    const { marketDataMcp } = await import('./services/marketDataMcp');
-    await marketDataMcp.listTools();
-  } catch (err: any) {
-    console.error('[MCP TEST] Failed:', err.message);
-  }
-}, 9000);
