@@ -85,9 +85,9 @@ export class AgentCycle {
       // STEP 2 — CANDLES (refresh every 5 cycles)
       if (this.cycleCount % 5 === 1 || this.cachedCandles.length === 0) {
         try {
-          this.cachedCandles = await this.bitgetREST.getCandles(symbol, '1H', 200);
+          this.cachedCandles = await this.bitgetREST.getCandles(symbol, '5min', 200);
         } catch {
-          if (this.cachedCandles.length === 0) this.cachedCandles = generateMockCandles(200, '1H');
+          if (this.cachedCandles.length === 0) this.cachedCandles = generateMockCandles(200, '5min');
         }
       }
 
@@ -130,7 +130,11 @@ export class AgentCycle {
         const actualDecision = riskResult.modifiedDecision || decision;
 
         // STEP 8 — EXECUTE
-        if (actualDecision.action === 'buy' && openTrades.length === 0) {
+        const recentClosed = this.db.getTrades(3).find((t) => t.status === 'closed' && t.closedAt);
+        const cooldownMs = 3 * 60 * 1000; // 3 minutes
+        const inCooldown = recentClosed?.closedAt ? Date.now() - recentClosed.closedAt < cooldownMs : false;
+
+          if (actualDecision.action === 'buy' && openTrades.length === 0 && !inCooldown) {
           const explanation = await this.nlExplainer.explain(actualDecision, currentPrice, riskResult);
           const trade = await this.executionEngine.openPosition(actualDecision, currentPrice, explanation);
           if (trade) this.emit({ type: 'trade_opened', data: trade, timestamp: Date.now() });
