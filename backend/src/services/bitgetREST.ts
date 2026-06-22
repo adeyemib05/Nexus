@@ -60,7 +60,7 @@ export class BitgetRESTClient {
       if (err.code === 'ECONNABORTED') {
         throw new Error(`Bitget API timeout — using fallback`);
       }
-      throw new Error(`Bitget GET ${path} failed: ${err.message}`);
+      throw new Error(`Bitget GET ${path} failed: ${err.message} | Bitget says: ${JSON.stringify(err.response?.data)}`);
     }
   }
 
