@@ -143,7 +143,6 @@ export class BitgetRESTClient {
       try {
         const data = await this.get<string[][]>('/api/v2/spot/market/history-candles', {
           symbol, granularity,
-          startTime: String(startTime),
           endTime: String(currentEnd),
           limit: '200',
         });
