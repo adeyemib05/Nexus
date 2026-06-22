@@ -3,6 +3,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { buildAuthHeaders } from './auth';
 import type { PriceTicker, Candle } from '../types';
 
+function normalizeGranularity(g: string): string {
+  const map: Record<string, string> = {
+    '1H': '1h', '4H': '4h', '6H': '6h', '12H': '12h',
+    '1D': '1day', '1W': '1week', '1M': '1M',
+  };
+  return map[g] ?? g.toLowerCase();
+}
+
 interface BitgetResponse<T> {
   code: string;
   msg: string;
@@ -114,7 +122,7 @@ export class BitgetRESTClient {
   async getCandles(symbol: string, granularity: string, limit = 200): Promise<Candle[]> {
     // Bitget returns: [ts, open, high, low, close, baseVol, quoteVol]
     const data = await this.get<string[][]>('/api/v2/spot/market/history-candles', {
-      symbol, granularity, limit: String(limit),
+      symbol, granularity: normalizeGranularity(granularity), limit: String(limit),
     });
 
     const candles: Candle[] = (data ?? []).map((row) => ({
@@ -142,7 +150,7 @@ export class BitgetRESTClient {
     for (let page = 0; page < MAX_PAGES; page++) {
       try {
         const data = await this.get<string[][]>('/api/v2/spot/market/history-candles', {
-          symbol, granularity,
+          symbol, granularity: normalizeGranularity(granularity),
           endTime: String(currentEnd),
           limit: '200',
         });
