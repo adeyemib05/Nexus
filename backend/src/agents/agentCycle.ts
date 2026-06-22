@@ -94,6 +94,7 @@ export class AgentCycle {
       // STEP 3 — REGIME
       const regime = await computeRegime(this.cachedCandles, this.bitgetREST, this.hubClient, symbol);
       console.log(`[CYCLE] Regime: ${regime.regime} (${regime.confidence}%) | Score: ${regime.fusedScore.toFixed(3)}`);
+      console.log('[CYCLE] Breakdown: ' + regime.signals.map((s) => `${s.type}:${s.score.toFixed(4)}`).join(' | '));
       this.db.saveRegime(regime);
       this.emit({ type: 'regime_updated', data: regime, timestamp: Date.now() });
 
