@@ -165,7 +165,8 @@ export class BitgetRESTClient {
         const oldest = Math.min(...batch.map((c) => c.timestamp));
         if (oldest <= startTime) break;
         currentEnd = oldest - 1;
-      } catch {
+      } catch (err: any) {
+        console.warn(`[BACKTEST] History-candles page ${page} failed: ${err.message}`);
         break;
       }
     }
