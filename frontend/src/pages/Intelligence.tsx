@@ -104,8 +104,8 @@ export default function Intelligence() {
                               <div key={key} className="contents">
                                 <span className="text-nexus-textMuted capitalize">{key}</span>
                                 <span className="font-mono text-nexus-textPrimary">
-                                  {typeof val === 'number' ? val.toFixed(3) : String(val)}
-                                </span>
+                                  {typeof val === 'number' ? val.toFixed(3) : typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val)}
+                                 </span>
                               </div>
                             ))}
                           </div>
