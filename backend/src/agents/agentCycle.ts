@@ -83,10 +83,13 @@ export class AgentCycle {
       this.emit({ type: 'ticker_update', data: ticker, timestamp: Date.now() });
 
       // STEP 2 — CANDLES (refresh every 5 cycles)
-      if (this.cycleCount % 5 === 1 || this.cachedCandles.length === 0) {
+    if (this.cycleCount % 5 === 1 || this.cachedCandles.length === 0) {
         try {
-          this.cachedCandles = await this.bitgetREST.getCandles(symbol, '5min', 200);
-        } catch {
+          const fresh = await this.bitgetREST.getCandles(symbol, '5min', 200);
+          this.cachedCandles = fresh;
+          console.log(`[CYCLE] Candles refreshed: ${fresh.length} candles, latest close $${fresh[fresh.length - 1]?.close}`);
+        } catch (err: any) {
+          console.warn(`[CYCLE] Candle refresh FAILED: ${err.message}`);
           if (this.cachedCandles.length === 0) this.cachedCandles = generateMockCandles(200, '5min');
         }
       }
