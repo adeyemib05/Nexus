@@ -39,7 +39,7 @@ Internal reasoning: ${decision.reasoning}`;
 
 async function callQwen(userPrompt: string): Promise<string> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), 30000);
   try {
     const response = await fetchFn(`${process.env.QWEN_BASE_URL}/chat/completions`, {
       method: 'POST',
@@ -74,7 +74,7 @@ async function callQwen(userPrompt: string): Promise<string> {
 
 async function callGemini(fullPrompt: string): Promise<string> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), 30000);
   try {
     const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
     const response = await fetchFn(
