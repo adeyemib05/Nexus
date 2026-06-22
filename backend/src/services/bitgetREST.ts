@@ -125,6 +125,12 @@ export class BitgetRESTClient {
       symbol, granularity: normalizeGranularity(granularity), limit: String(limit),
     });
 
+    const data = await this.get<string[][]>('/api/v2/spot/market/history-candles', {
+      symbol, granularity: normalizeGranularity(granularity),
+      endTime: String(Date.now()),
+      limit: String(limit),
+    });
+    
     const candles: Candle[] = (data ?? []).map((row) => ({
       timestamp: parseInt(row[0], 10),
       open: parseFloat(row[1]),
