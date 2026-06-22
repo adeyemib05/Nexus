@@ -85,12 +85,12 @@ export class AgentCycle {
       // STEP 2 — CANDLES (refresh every 5 cycles)
     if (this.cycleCount % 5 === 1 || this.cachedCandles.length === 0) {
         try {
-          const fresh = await this.bitgetREST.getCandles(symbol, '5min', 50);
+          const fresh = await this.bitgetREST.getCandles(symbol, '1H', 200);
           this.cachedCandles = fresh;
           console.log(`[CYCLE] Candles refreshed: ${fresh.length} candles, latest close $${fresh[fresh.length - 1]?.close}`);
         } catch (err: any) {
           console.warn(`[CYCLE] Candle refresh FAILED: ${err.message}`);
-          if (this.cachedCandles.length === 0) this.cachedCandles = generateMockCandles(50, '5min');
+          if (this.cachedCandles.length === 0) this.cachedCandles = generateMockCandles(200, '1H');
         }
       }
 
