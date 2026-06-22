@@ -122,10 +122,6 @@ export class BitgetRESTClient {
   async getCandles(symbol: string, granularity: string, limit = 200): Promise<Candle[]> {
     // Bitget returns: [ts, open, high, low, close, baseVol, quoteVol]
     const data = await this.get<string[][]>('/api/v2/spot/market/history-candles', {
-      symbol, granularity: normalizeGranularity(granularity), limit: String(limit),
-    });
-
-    const data = await this.get<string[][]>('/api/v2/spot/market/history-candles', {
       symbol, granularity: normalizeGranularity(granularity),
       endTime: String(Date.now()),
       limit: String(limit),
