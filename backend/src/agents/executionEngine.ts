@@ -70,7 +70,7 @@ export class ExecutionEngine {
    * fixed SL/TP (everything else), and the 48h timeout — then closes anything
    * that's hit, with realistic trading fees deducted from PnL.
    */
-  async checkAndClosePositions(currentPrice: number): Promise<void> {
+    async checkAndClosePositions(currentPrice: number, technicalDetails?: Record<string, unknown>): Promise<void> {
     const openTrades = this.db.getOpenTrades();
 
     const TRAIL_ACTIVATION_PCT = parseFloat(process.env.TRAILING_STOP_ACTIVATION_PCT || '0.015');
@@ -80,6 +80,18 @@ export class ExecutionEngine {
     const FEE_PCT = parseFloat(process.env.TRADING_FEE_PCT || '0.001');
 
     for (const trade of openTrades) {
+      // Mid-trade trend-invalidation check — mean_reversion assumes a range.
+      // If ADX spikes while the trade is open, the range has likely broken
+      // into a real trend; exit now instead of waiting for the fixed stop.
+      let forceExit = false;
+      if (trade.strategy === 'mean_reversion' && technicalDetails) {
+        const liveAdx = Number(technicalDetails.adx ?? 20);
+        if (liveAdx > 35) {
+          forceExit = true;
+          console.log(`[EXEC] ⚠️  Mid-trade trend invalidation for ${trade.symbol} — ADX ${liveAdx.toFixed(1)}, exiting range trade early`);
+        }
+      }
+
       let effectiveStopLoss = trade.stopLoss;
       let effectiveTakeProfit = trade.takeProfit;
       let trailingActive = false;
@@ -141,9 +153,9 @@ export class ExecutionEngine {
       const hitTP = trade.side === 'long' ? currentPrice >= effectiveTakeProfit : currentPrice <= effectiveTakeProfit;
       const timedOut = Date.now() - trade.openedAt > 48 * 3600 * 1000;
 
-      if (hitSL || hitTP || timedOut) {
-        const exitPrice = hitSL ? effectiveStopLoss : hitTP ? effectiveTakeProfit : currentPrice;
-        const reason = hitSL ? (trailingActive ? 'trailing_stop' : 'stop_loss') : hitTP ? 'take_profit' : 'timeout_48h';
+      if (hitSL || hitTP || timedOut || forceExit) {
+        const exitPrice = forceExit ? currentPrice : hitSL ? effectiveStopLoss : hitTP ? effectiveTakeProfit : currentPrice;
+        const reason = forceExit ? 'trend_invalidation' : hitSL ? (trailingActive ? 'trailing_stop' : 'stop_loss') : hitTP ? 'take_profit' : 'timeout_48h';
 
         const grossPnlUSD =
           trade.side === 'long'
