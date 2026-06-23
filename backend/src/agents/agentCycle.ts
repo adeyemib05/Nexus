@@ -102,7 +102,8 @@ export class AgentCycle {
       this.emit({ type: 'regime_updated', data: regime, timestamp: Date.now() });
 
       // STEP 4 — CHECK EXISTING POSITIONS
-      await this.executionEngine.checkAndClosePositions(currentPrice);
+      const liveTechnical = regime.signals.find((s) => s.type === 'technical');
+      await this.executionEngine.checkAndClosePositions(currentPrice, liveTechnical?.details);
 
       // STEP 5 — UPDATE PORTFOLIO
       const allTrades = this.db.getTrades(500);
