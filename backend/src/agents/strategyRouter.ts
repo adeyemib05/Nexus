@@ -57,24 +57,42 @@ export class StrategyRouter {
       case 'ranging': {
         strategy = 'mean_reversion';
         const bbPos = Number(techSignal?.details?.bbPosition ?? 0.5);
+        const adx = Number(techSignal?.details?.adx ?? 20);
+        // ADX this high while classified "ranging" usually means a real trend
+        // is underway and the classifier just hasn't caught up yet — buying a
+        // dip here is the classic "falling knife" mistake. Skip the entry.
+        const strongTrendGuard = adx > 35;
 
-        if (bbPos < 0.25) action = 'buy';
-        else if (bbPos > 0.75) action = hasOpenLong ? 'close' : 'flat';
-        else action = 'hold';
+        if (strongTrendGuard) {
+          action = hasOpenLong ? 'close' : 'flat';
+        } else if (bbPos < 0.25) {
+          action = 'buy';
+        } else if (bbPos > 0.75) {
+          action = hasOpenLong ? 'close' : 'flat';
+        } else {
+          action = 'hold';
+        }
 
         positionSizePct = action === 'buy' ? 0.01 : 0;
         stopLossPct = 0.015;
         takeProfitPct = 0.03;
-        reasoning =
-          `Ranging market (${regime.confidence}%). ` +
-          `BB position: ${bbPos.toFixed(2)}. ` +
-          `${
-            action === 'buy'
-              ? 'Near lower band — mean reversion buy.'
-              : action === 'close'
-                ? 'Near upper band — closing long.'
-                : 'Waiting for cleaner entry within range.'
-          }`;
+
+        if (strongTrendGuard) {
+          reasoning =
+            `Ranging regime (${regime.confidence}%), but ADX ${adx.toFixed(1)} indicates a strong underlying trend. ` +
+            `Skipping mean-reversion entry to avoid buying into a real move misread as a range.`;
+        } else {
+          reasoning =
+            `Ranging market (${regime.confidence}%). ` +
+            `BB position: ${bbPos.toFixed(2)}. ADX: ${adx.toFixed(1)} (range-consistent). ` +
+            `${
+              action === 'buy'
+                ? 'Near lower band — mean reversion buy.'
+                : action === 'close'
+                  ? 'Near upper band — closing long.'
+                  : 'Waiting for cleaner entry within range.'
+            }`;
+        }
         break;
       }
 
