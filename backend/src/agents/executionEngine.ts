@@ -47,7 +47,6 @@ export class ExecutionEngine {
     this.db.saveTrade(trade);
 
     try {
-      // Sim order log only — no real funds ever move
       await this.bitgetREST.placeSimOrder({
         symbol: decision.symbol,
         side: side === 'long' ? 'buy' : 'sell',
@@ -66,22 +65,92 @@ export class ExecutionEngine {
     return trade;
   }
 
+  /**
+   * Checks every open position against trailing stop logic (momentum_long only),
+   * fixed SL/TP (everything else), and the 48h timeout — then closes anything
+   * that's hit, with realistic trading fees deducted from PnL.
+   */
   async checkAndClosePositions(currentPrice: number): Promise<void> {
     const openTrades = this.db.getOpenTrades();
 
+    const TRAIL_ACTIVATION_PCT = parseFloat(process.env.TRAILING_STOP_ACTIVATION_PCT || '0.015');
+    const TRAIL_DISTANCE_PCT = parseFloat(process.env.TRAILING_STOP_DISTANCE_PCT || '0.01');
+    const TP_EXTENSION_PCT = parseFloat(process.env.TAKE_PROFIT_EXTENSION_PCT || '0.02');
+    // Bitget spot taker fee is ~0.1% per side; 0.001 here means 0.2% round-trip
+    const FEE_PCT = parseFloat(process.env.TRADING_FEE_PCT || '0.001');
+
     for (const trade of openTrades) {
-      const hitSL = trade.side === 'long' ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss;
-      const hitTP = trade.side === 'long' ? currentPrice >= trade.takeProfit : currentPrice <= trade.takeProfit;
+      let effectiveStopLoss = trade.stopLoss;
+      let effectiveTakeProfit = trade.takeProfit;
+      let trailingActive = false;
+
+      // Trailing stop + take-profit extension — momentum_long only. Mean-reversion
+      // trades target the range midpoint and exit there by design; trailing
+      // doesn't fit that logic.
+      if (trade.strategy === 'momentum_long') {
+        const priorPeak = trade.peakPrice ?? trade.entryPrice;
+        const newPeak =
+          trade.side === 'long' ? Math.max(priorPeak, currentPrice) : Math.min(priorPeak, currentPrice);
+
+        const gainFromEntry =
+          trade.side === 'long'
+            ? (newPeak - trade.entryPrice) / trade.entryPrice
+            : (trade.entryPrice - newPeak) / trade.entryPrice;
+
+        trailingActive = gainFromEntry >= TRAIL_ACTIVATION_PCT;
+
+        const dbUpdates: Partial<Trade> = {};
+        if (newPeak !== priorPeak) dbUpdates.peakPrice = newPeak;
+
+        if (trailingActive) {
+          const candidateStop =
+            trade.side === 'long' ? newPeak * (1 - TRAIL_DISTANCE_PCT) : newPeak * (1 + TRAIL_DISTANCE_PCT);
+          const stopImproves =
+            trade.side === 'long' ? candidateStop > effectiveStopLoss : candidateStop < effectiveStopLoss;
+
+          if (stopImproves) {
+            console.log(
+              `[EXEC] 🔒 Trailing stop raised for ${trade.symbol}: $${effectiveStopLoss.toFixed(2)} → $${candidateStop.toFixed(2)} (peak $${newPeak.toFixed(2)})`
+            );
+            effectiveStopLoss = candidateStop;
+            dbUpdates.stopLoss = candidateStop;
+          }
+
+          // Let the ceiling extend too — otherwise the fixed take-profit caps
+          // upside even while the trailing stop is successfully protecting gains.
+          const candidateTP =
+            trade.side === 'long' ? newPeak * (1 + TP_EXTENSION_PCT) : newPeak * (1 - TP_EXTENSION_PCT);
+          const tpImproves =
+            trade.side === 'long' ? candidateTP > effectiveTakeProfit : candidateTP < effectiveTakeProfit;
+
+          if (tpImproves) {
+            console.log(
+              `[EXEC] 🎯 Take-profit extended for ${trade.symbol}: $${effectiveTakeProfit.toFixed(2)} → $${candidateTP.toFixed(2)}`
+            );
+            effectiveTakeProfit = candidateTP;
+            dbUpdates.takeProfit = candidateTP;
+          }
+        }
+
+        if (Object.keys(dbUpdates).length > 0) {
+          this.db.updateTrade(trade.id, dbUpdates);
+        }
+      }
+
+      const hitSL = trade.side === 'long' ? currentPrice <= effectiveStopLoss : currentPrice >= effectiveStopLoss;
+      const hitTP = trade.side === 'long' ? currentPrice >= effectiveTakeProfit : currentPrice <= effectiveTakeProfit;
       const timedOut = Date.now() - trade.openedAt > 48 * 3600 * 1000;
 
       if (hitSL || hitTP || timedOut) {
-        const exitPrice = hitSL ? trade.stopLoss : hitTP ? trade.takeProfit : currentPrice;
-        const reason = hitSL ? 'stop_loss' : hitTP ? 'take_profit' : 'timeout_48h';
+        const exitPrice = hitSL ? effectiveStopLoss : hitTP ? effectiveTakeProfit : currentPrice;
+        const reason = hitSL ? (trailingActive ? 'trailing_stop' : 'stop_loss') : hitTP ? 'take_profit' : 'timeout_48h';
 
-        const pnlUSD =
+        const grossPnlUSD =
           trade.side === 'long'
             ? ((exitPrice - trade.entryPrice) / trade.entryPrice) * trade.positionSizeUSD
             : ((trade.entryPrice - exitPrice) / trade.entryPrice) * trade.positionSizeUSD;
+        const feeUSD = trade.positionSizeUSD * FEE_PCT * 2; // entry + exit
+        const pnlUSD = grossPnlUSD - feeUSD;
         const pnlPct = pnlUSD / trade.positionSizeUSD;
 
         this.db.updateTrade(trade.id, {
@@ -94,7 +163,7 @@ export class ExecutionEngine {
 
         console.log(`[EXEC] 🔴 Closed ${trade.side.toUpperCase()} @ $${exitPrice.toFixed(2)}`);
         console.log(
-          `       PnL: ${pnlUSD >= 0 ? '+' : ''}$${pnlUSD.toFixed(2)} (${(pnlPct * 100).toFixed(2)}%) [${reason}]`
+          `       PnL: ${pnlUSD >= 0 ? '+' : ''}$${pnlUSD.toFixed(2)} (${(pnlPct * 100).toFixed(2)}%) [${reason}, fees: $${feeUSD.toFixed(2)}]`
         );
       }
     }
@@ -103,12 +172,15 @@ export class ExecutionEngine {
   async closeAllPositions(currentPrice: number, reason: string): Promise<void> {
     console.log(`[EXEC] 🛑 Closing all positions: ${reason}`);
     const openTrades = this.db.getOpenTrades();
+    const FEE_PCT = parseFloat(process.env.TRADING_FEE_PCT || '0.001');
 
     for (const trade of openTrades) {
-      const pnlUSD =
+      const grossPnlUSD =
         trade.side === 'long'
           ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * trade.positionSizeUSD
           : ((trade.entryPrice - currentPrice) / trade.entryPrice) * trade.positionSizeUSD;
+      const feeUSD = trade.positionSizeUSD * FEE_PCT * 2;
+      const pnlUSD = grossPnlUSD - feeUSD;
       const pnlPct = pnlUSD / trade.positionSizeUSD;
 
       this.db.updateTrade(trade.id, {

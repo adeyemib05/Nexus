@@ -77,6 +77,7 @@ export class BacktestEngine {
 
     // ── STEP 3 — Initialize simulation state ──────────────────────────────
     const initialCapital = 10000;
+    const FEE_PCT = parseFloat(process.env.TRADING_FEE_PCT || '0.001'); // 0.1% per side
     let portfolioValue = initialCapital;
     let peakValue = initialCapital;
     let maxDrawdown = 0;
@@ -109,10 +110,12 @@ export class BacktestEngine {
 
         if (hitSL || hitTP || timedOut) {
           const exitPrice = hitSL ? openPosition.stopLoss : hitTP ? openPosition.takeProfit : currentPrice;
-          const pnlPct = isLong
+          const grossPnlPct = isLong
             ? (exitPrice - openPosition.entryPrice) / openPosition.entryPrice
             : (openPosition.entryPrice - exitPrice) / openPosition.entryPrice;
-          const pnlUSD = openPosition.positionSizeUSD * pnlPct;
+          const feeUSD = openPosition.positionSizeUSD * FEE_PCT * 2;
+          const pnlUSD = openPosition.positionSizeUSD * grossPnlPct - feeUSD;
+          const pnlPct = pnlUSD / openPosition.positionSizeUSD;
           portfolioValue += pnlUSD;
 
           closedTrades.push({

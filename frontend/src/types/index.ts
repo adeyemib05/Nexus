@@ -56,6 +56,7 @@ export interface Trade {
   explanation: string;
   regimeAtEntry: MarketRegime;
   regimeConfidence: number;
+  peakPrice?: number;
 }
 
 export interface Candle {
