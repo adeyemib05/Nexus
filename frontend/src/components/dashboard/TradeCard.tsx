@@ -12,7 +12,15 @@ interface TradeCardProps {
 export default function TradeCard({ trade, currentPrice }: TradeCardProps) {
   const timeAgo = useRelativeTime(trade.openedAt);
   const isOpen = trade.status === 'open';
-  const unrealizedPct = isOpen && currentPrice ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100 : null;
+
+  // FIXED: was always computed as if the trade were long. For a short, profit
+  // direction is the mirror image — price falling is a gain, not a loss.
+  const unrealizedPct =
+    isOpen && currentPrice
+      ? trade.side === 'long'
+        ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
+        : ((trade.entryPrice - currentPrice) / trade.entryPrice) * 100
+      : null;
 
   return (
     <div className="glass-card p-4 space-y-3">
@@ -40,7 +48,6 @@ export default function TradeCard({ trade, currentPrice }: TradeCardProps) {
           </span>
           <span className="ml-auto text-[9px] text-nexus-textMuted font-mono">Powered by Qwen</span>
         </div>
-        {/* No line-clamp here on purpose — the full explanation should always be readable */}
         <p className="text-xs text-nexus-textSecondary leading-relaxed font-body italic">{trade.explanation}</p>
       </div>
 
