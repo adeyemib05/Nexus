@@ -7,9 +7,6 @@ export interface McpSignalResult {
   details: Record<string, unknown>;
 }
 
-// Caches each signal's result for a few minutes so we don't hammer the shared
-// hackathon MCP server every single 60s cycle, 24/7 — protects against
-// getting rate-limited or blocked right when judges are testing the demo.
 const CACHE_TTL_MS = 4 * 60 * 1000;
 const cache = new Map<string, { result: McpSignalResult; expiresAt: number }>();
 
@@ -78,8 +75,6 @@ export async function computeMcpSentiment(symbol: string): Promise<McpSignalResu
       const takerRatio = safeNum(takerEntry?.buySellRatio ?? takerEntry?.takerBuySellRatio ?? takerEntry?.ratio, 1);
 
       const fgScore = clamp((fgValue - 50) / 50, -1, 1);
-      // Heavy long positioning treated as a crowded-trade caution signal (contrarian),
-      // not as bullish confirmation — a documented, intentional interpretation choice.
       const lsScore = clamp((1 - lsRatio) * 0.6, -1, 1);
       const takerScore = clamp((takerRatio - 1) * 1.5, -1, 1);
 
@@ -89,10 +84,9 @@ export async function computeMcpSentiment(symbol: string): Promise<McpSignalResu
         score,
         confidence: 0.7,
         details: {
-          fearGreedIndex: fgValue,
-          fearGreedLabel: fgRaw?.classification ?? null,
-          longShortRatio: lsRatio,
-          takerBuySellRatio: takerRatio,
+          fearGreedIndex: `${fgValue} (${fgRaw?.classification ?? 'N/A'})`,
+          longShortRatio: lsRatio.toFixed(2),
+          takerBuySellRatio: takerRatio.toFixed(2),
         },
       };
     } catch (err: any) {
@@ -124,7 +118,11 @@ export async function computeMcpMacro(): Promise<McpSignalResult> {
       return {
         score,
         confidence: 0.65,
-        details: { yieldSpread10y2y: spread, btcNdxCorrelation: ndxCorr, btcDxyCorrelation: dxyCorr },
+        details: {
+          yieldCurveSpread: `${(spread * 100).toFixed(2)}%`,
+          btcVsNasdaqCorrelation: ndxCorr.toFixed(2),
+          btcVsDollarCorrelation: dxyCorr.toFixed(2),
+        },
       };
     } catch (err: any) {
       console.warn(`[MCP] macro failed: ${err.message}`);
@@ -145,13 +143,24 @@ export async function computeMcpOnchain(): Promise<McpSignalResult> {
       const feeRate = safeNum(feesRaw?.fastestFee, 15);
       const feeScore = clamp((feeRate - 15) / 35, -1, 1);
       const onchainConfidence = clamp(0.4 + Math.abs(feeScore) * 0.25, 0.4, 0.65);
+      const feeLevel = feeRate <= 3 ? 'Low' : feeRate <= 15 ? 'Moderate' : 'High';
 
-      const topProtocols = Array.isArray(tvlRaw) ? tvlRaw.slice(0, 3) : tvlRaw?.protocols?.slice(0, 3) ?? [];
+      // Reduce the raw protocol objects (which include TVL breakdowns, logos,
+      // chain data, etc.) down to just the names — that's all a reader needs.
+      const protocolList: any[] = Array.isArray(tvlRaw) ? tvlRaw : tvlRaw?.protocols ?? [];
+      const topNames = protocolList
+        .slice(0, 3)
+        .map((p) => p?.name)
+        .filter(Boolean)
+        .join(', ');
 
       return {
         score: feeScore,
         confidence: onchainConfidence,
-        details: { btcFastestFeeSatVb: feeRate, topDefiProtocols: topProtocols },
+        details: {
+          networkFeePressure: `${feeLevel} (${feeRate} sat/vB)`,
+          topDeFiProtocols: topNames || 'N/A',
+        },
       };
     } catch (err: any) {
       console.warn(`[MCP] onchain failed: ${err.message}`);
@@ -179,7 +188,7 @@ export async function computeMcpNews(): Promise<McpSignalResult> {
 
       const total = pos + neg;
       const score = total > 0 ? clamp((pos - neg) / Math.max(total, 1), -1, 1) : 0;
-      const sampleHeadlines = articles.slice(0, 3).map((a) => decodeEntities(String(a?.title ?? '')));
+      const sampleHeadline = articles.length > 0 ? decodeEntities(String(articles[0]?.title ?? '')) : 'No recent headlines';
 
       const newsConfidence =
         articles.length > 0
@@ -189,7 +198,10 @@ export async function computeMcpNews(): Promise<McpSignalResult> {
       return {
         score,
         confidence: newsConfidence,
-        details: { articlesScanned: articles.length, positiveHits: pos, negativeHits: neg, sampleHeadlines },
+        details: {
+          articlesScanned: articles.length,
+          latestHeadline: sampleHeadline,
+        },
       };
     } catch (err: any) {
       console.warn(`[MCP] news failed: ${err.message}`);

@@ -72,12 +72,10 @@ export async function computeTechnicalSignal(candles: Candle[]): Promise<SignalR
   // ── INDICATOR 3 — Bollinger Bands(20, 2) ─────────────────────────────
   let bbScore = 0;
   let position = 0.5;
-  let bandWidth = 0;
   try {
     const bbResult = BollingerBands.calculate({ values: closes, period: 20, stdDev: 2 });
     const last = bbResult[bbResult.length - 1];
     if (last && isFinite(last.upper) && isFinite(last.lower) && isFinite(last.middle) && last.upper !== last.lower) {
-      bandWidth = (last.upper - last.lower) / last.middle;
       position = (lastPrice - last.lower) / (last.upper - last.lower);
       bbScore = clamp((0.5 - position) * 2, -1, 1);
     }
@@ -118,6 +116,8 @@ export async function computeTechnicalSignal(candles: Candle[]): Promise<SignalR
   const finalScore = clamp(rawScore * trendMultiplier, -1, 1);
   const confidence = Math.min(0.95, 0.5 + Math.abs(finalScore) * 0.45);
 
+  // Details kept flat and human-readable on purpose — these render directly
+  // in tooltips and the Intelligence page, so no nested objects here.
   return {
     type: 'technical',
     score: finalScore,
@@ -126,14 +126,14 @@ export async function computeTechnicalSignal(candles: Candle[]): Promise<SignalR
     label: 'Technical Analysis',
     source: 'local',
     details: {
-      rsi,
-      macd: { histogram, signal: signalLine, value: macdLine },
-      bbPosition: position,
-      bbWidth: bandWidth,
+      rsi: parseFloat(rsi.toFixed(1)),
+      macdTrend: histogram > 0 ? 'Bullish momentum' : 'Bearish momentum',
+      macdHistogram: parseFloat(histogram.toFixed(2)),
+      bbPosition: parseFloat(position.toFixed(3)),
       emaSignal: ema20 > ema50 ? 'bullish' : 'bearish',
-      adx,
+      adx: parseFloat(adx.toFixed(1)),
       trendStrength: adx > 40 ? 'strong' : adx > 20 ? 'moderate' : 'weak',
-      price: lastPrice,
+      price: parseFloat(lastPrice.toFixed(2)),
     },
     timestamp: Date.now(),
   };

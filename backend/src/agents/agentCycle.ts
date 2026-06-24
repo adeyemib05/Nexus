@@ -155,7 +155,7 @@ export class AgentCycle {
       }
 
       // STEP 9 — PERFORMANCE SNAPSHOT (every 10 cycles)
-      if (this.cycleCount % 10 === 0) {
+      if (this.cycleCount % 2 === 0) {
         const closedTrades = allTrades.filter((t) => t.status === 'closed');
         const snapshot = this.computeSnapshot(closedTrades, openTrades.length);
         this.db.savePerformanceSnapshot(snapshot);

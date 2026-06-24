@@ -29,10 +29,21 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const AGENT_MODE = process.env.AGENT_MODE || 'simulation';
 const AGENT_SYMBOL = process.env.AGENT_SYMBOL || 'BTCUSDT';
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS || 'http://localhost:5173';
+const ALLOWED_ORIGINS_LIST = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
+// Vercel generates a new random preview URL for every branch/deployment —
+// this pattern matches all of them automatically so we don't have to update
+// ALLOWED_ORIGINS by hand every time.
+const VERCEL_PREVIEW_PATTERN = /^https:\/\/nexus-[a-z0-9]+-nexus-labs-projects1\.vercel\.app$/;
 
 app.use(cors({
-  origin: ALLOWED_ORIGINS.split(','),
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // non-browser requests (curl, health checks)
+    if (ALLOWED_ORIGINS_LIST.includes(origin) || VERCEL_PREVIEW_PATTERN.test(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  credentials: true,
   credentials: true
 }));
 
@@ -107,7 +118,7 @@ app.use('/api/stream', streamRouter);
 app.listen(PORT, () => {
   console.log(`🚀 NEXUS Backend — port ${PORT}`);
   console.log(`📊 Mode: ${AGENT_MODE} | Symbol: ${AGENT_SYMBOL}`);
-  console.log(`🌐 CORS: ${ALLOWED_ORIGINS}`);
+  console.log(`🌐 CORS: production=${ALLOWED_ORIGINS_LIST.join(',')} + all nexus-*-nexus-labs-projects1.vercel.app previews`);
 
   // ── Connectivity test (runs 1s after server starts) ───────────────────
   setTimeout(async () => {
