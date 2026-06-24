@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { BacktestEngine } from '../backtest/backtestEngine';
 import { db, bitgetREST } from '../state';
-import { generateMockBacktestResult } from '../services/mockData';
 
 const router = Router();
 
@@ -11,7 +10,7 @@ router.post('/run', async (req: Request, res: Response) => {
     const params = {
       symbol: body.symbol || 'BTCUSDT',
       granularity: body.granularity || '1H',
-      days: Math.min(parseInt(body.days) || 30, 90), // capped at 90 days
+      days: Math.min(parseInt(body.days) || 30, 90),
     };
     const engine = new BacktestEngine(bitgetREST, db);
     const result = await engine.run(params);
@@ -24,12 +23,10 @@ router.post('/run', async (req: Request, res: Response) => {
 router.get('/results', async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 5;
+    // No mock fallback — an empty list just means no backtest has been run
+    // yet, which is the honest state.
     const results = db.getBacktestResults(limit);
-    res.json({
-      success: true,
-      data: results.length === 0 ? [generateMockBacktestResult()] : results,
-      timestamp: Date.now(),
-    });
+    res.json({ success: true, data: results, timestamp: Date.now() });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message, timestamp: Date.now() });
   }
