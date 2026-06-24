@@ -1,12 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../state';
-import { generateMockTrade } from '../services/mockData';
 import type { TradeStatus, Trade } from '../types';
 
 const router = Router();
-
-// NOTE: /open and /stats must stay registered before /:id, otherwise
-// Express would treat "open" or "stats" as a trade id.
 
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -17,9 +13,8 @@ router.get('/', async (req: Request, res: Response) => {
     if (status !== 'all') {
       trades = trades.filter((t) => t.status === (status as TradeStatus));
     }
-    if (trades.length === 0) {
-      trades = Array.from({ length: 5 }, (_, i) => generateMockTrade(i));
-    }
+    // No mock fallback here on purpose — an empty list is the honest, correct
+    // state for a freshly-deployed agent that hasn't traded yet.
     res.json({ success: true, data: trades, timestamp: Date.now() });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message, timestamp: Date.now() });
