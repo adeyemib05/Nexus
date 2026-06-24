@@ -55,15 +55,12 @@ export class RiskManager {
   evaluate(decision: StrategyDecision, currentValue: number, newsSentimentShift: number): RiskEvaluation {
     this.checkDailyReset();
 
-    // Guard against NaN/invalid portfolio value corrupting drawdown math
     const safeValue = isNaN(currentValue) || currentValue <= 0 ? this.initialValue : currentValue;
 
-    // CHECK A — already halted
     if (this.isHalted) {
       return { approved: false, reason: this.haltReason! };
     }
 
-    // CHECK B — drawdown limit
     this.currentDrawdown = (this.peakValue - safeValue) / this.peakValue;
     if (this.currentDrawdown > this.maxDrawdown) {
       this.isHalted = true;
@@ -71,18 +68,18 @@ export class RiskManager {
       return { approved: false, reason: this.haltReason };
     }
 
-    // CHECK C — capital protection always passes
     if (decision.strategy === 'capital_protection') {
       return { approved: true, reason: 'Capital protection mode' };
     }
 
-    // CHECK D — daily trade limit
     if (this.dailyTrades >= 10) {
       return { approved: false, reason: 'Daily trade limit (10) reached' };
     }
 
-    // CHECK E — news spike guard
-    if (Math.abs(newsSentimentShift) > 0.4 && decision.action === 'buy') {
+    // News-spike guard now covers both new longs and new shorts — a sudden
+    // sentiment swing is an entry risk regardless of direction.
+    const isNewEntry = decision.action === 'buy' || decision.action === 'sell';
+    if (Math.abs(newsSentimentShift) > 0.4 && isNewEntry) {
       const modified: StrategyDecision = {
         ...decision,
         positionSizePct: decision.positionSizePct * 0.5,
@@ -91,7 +88,6 @@ export class RiskManager {
       return { approved: true, reason: 'Approved with reduced size — news volatility', modifiedDecision: modified };
     }
 
-    // CHECK F — position size cap
     if (decision.positionSizePct > this.maxPosPct) {
       const modified: StrategyDecision = {
         ...decision,
@@ -129,7 +125,6 @@ export class RiskManager {
     };
   }
 
-  /** Admin override — clears halt state and resets daily counters */
   reset(): void {
     this.isHalted = false;
     this.haltReason = null;
