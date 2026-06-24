@@ -139,7 +139,7 @@ export class AgentCycle {
         const cooldownMs = 3 * 60 * 1000; // 3 minutes
         const inCooldown = recentClosed?.closedAt ? Date.now() - recentClosed.closedAt < cooldownMs : false;
 
-          if (actualDecision.action === 'buy' && openTrades.length === 0 && !inCooldown) {
+          if ((actualDecision.action === 'buy' || actualDecision.action === 'sell') && openTrades.length === 0 && !inCooldown) {
           const explanation = await this.nlExplainer.explain(actualDecision, currentPrice, riskResult);
           const trade = await this.executionEngine.openPosition(actualDecision, currentPrice, explanation);
           if (trade) this.emit({ type: 'trade_opened', data: trade, timestamp: Date.now() });
