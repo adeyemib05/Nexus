@@ -40,12 +40,8 @@ export default function TradeCard({ trade, currentPrice }: TradeCardProps) {
           </span>
           <span className="ml-auto text-[9px] text-nexus-textMuted font-mono">Powered by Qwen</span>
         </div>
-        <p
-          className="text-xs text-nexus-textSecondary leading-relaxed font-body italic"
-          style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
-        >
-          {trade.explanation}
-        </p>
+        {/* No line-clamp here on purpose — the full explanation should always be readable */}
+        <p className="text-xs text-nexus-textSecondary leading-relaxed font-body italic">{trade.explanation}</p>
       </div>
 
       <div className="flex items-center justify-between text-xs font-mono">
