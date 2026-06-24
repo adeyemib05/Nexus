@@ -12,6 +12,7 @@ export class StrategyRouter {
     symbol = 'BTCUSDT'
   ): StrategyDecision {
     const hasOpenLong = openPositions.some((t) => t.side === 'long' && t.status === 'open');
+    const hasOpenShort = openPositions.some((t) => t.side === 'short' && t.status === 'open');
     const MAX_POS = parseFloat(process.env.MAX_POSITION_SIZE_PCT || '0.02');
     const techSignal = regime.signals.find((s) => s.type === 'technical');
 
@@ -44,13 +45,35 @@ export class StrategyRouter {
 
       case 'bearish_trend': {
         strategy = 'momentum_short';
-        action = hasOpenLong ? 'close' : 'flat';
-        positionSizePct = 0;
-        stopLossPct = 0.02;
-        takeProfitPct = 0.05;
+
+        // Mirror image of bullish_trend: close any long first (the trend just
+        // flipped against it), hold an existing short, or open a new one.
+        if (hasOpenLong) {
+          action = 'close';
+        } else if (hasOpenShort) {
+          action = 'hold';
+        } else {
+          action = 'sell';
+        }
+
+        if (regime.confidence < 50) positionSizePct = 0.01;
+        else if (regime.confidence <= 70) positionSizePct = 0.015;
+        else if (regime.confidence <= 85) positionSizePct = 0.02;
+        else positionSizePct = Math.min(0.025, MAX_POS);
+
+        stopLossPct = 0.025;
+        takeProfitPct = 0.06;
         reasoning =
-          `Bearish trend (${regime.confidence}%). ` +
-          `${hasOpenLong ? 'Closing long position.' : 'Staying flat — no new short in sim mode.'}`;
+          `Bearish trend confirmed (${regime.confidence}% confidence, ` +
+          `fused score ${regime.fusedScore.toFixed(3)}). ` +
+          `${techSignal?.strength || 'N/A'} technical signal. ` +
+          `${
+            hasOpenLong
+              ? 'Closing long position — trend has flipped against it.'
+              : action === 'sell'
+                ? 'Momentum short entry.'
+                : 'Holding existing short position.'
+          }`;
         break;
       }
 
