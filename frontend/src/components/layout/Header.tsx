@@ -5,10 +5,11 @@ import { useRelativeTime } from '../../hooks/useRelativeTime';
 import { formatPrice, formatPct } from '../../lib/utils';
 
 const PAGE_TITLES: Record<string, string> = {
-  '/': 'Dashboard',
-  '/intelligence': 'Intelligence',
-  '/performance': 'Performance',
-  '/settings': 'Settings',
+  '/stress-test': '7×24 Pre-Trade Stress Simulator',
+  '/': 'Trading Desk & Signals',
+  '/intelligence': 'Market Intelligence',
+  '/performance': 'Performance & Audit',
+  '/settings': 'System Settings',
 };
 
 export default function Header() {

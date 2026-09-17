@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingScreen from './components/LoadingScreen';
+import StressSimulator from './pages/StressSimulator';
 import Dashboard from './pages/Dashboard';
 import Intelligence from './pages/Intelligence';
 import Performance from './pages/Performance';
@@ -56,6 +57,7 @@ export default function App() {
       <Router>
         <Layout>
           <Routes>
+            <Route path="/stress-test" element={<StressSimulator />} />
             <Route path="/" element={<Dashboard />} />
             <Route path="/intelligence" element={<Intelligence />} />
             <Route path="/performance" element={<Performance />} />

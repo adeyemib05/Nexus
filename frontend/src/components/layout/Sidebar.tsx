@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Brain, BarChart2, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Brain, BarChart2, Settings as SettingsIcon, ShieldAlert } from 'lucide-react';
 import { useNexusStore } from '../../store';
 import { cn } from '../../lib/utils';
 import type { AgentStatus } from '../../types';
 
 const NAV_ITEMS = [
+  { name: 'Stress Simulator', path: '/stress-test', icon: ShieldAlert },
   { name: 'Dashboard', path: '/', icon: LayoutDashboard },
   { name: 'Intelligence', path: '/intelligence', icon: Brain },
   { name: 'Performance', path: '/performance', icon: BarChart2 },
@@ -96,7 +97,7 @@ export default function Sidebar() {
               <span className={cn('w-2 h-2 rounded-full', STATUS_DOT[status])} />
               <span className="text-xs font-display text-nexus-textPrimary">Agent {capitalize(status)}</span>
             </div>
-            <div className="stat-label mt-0.5">NEXUS v1.0.0</div>
+            <div className="stat-label mt-0.5 text-nexus-accent">Bitget AI S2 · Track 3</div>
           </div>
         </div>
       </aside>

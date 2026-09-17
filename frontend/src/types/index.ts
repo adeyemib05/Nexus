@@ -178,3 +178,95 @@ export const REGIME_CONFIG = {
     description: 'Mixed signals — protecting capital', strategy: 'Capital Protection',
   },
 } as const;
+
+export interface EquityData {
+  symbol: string;
+  name: string;
+  price: number;
+  change24h: number;
+  beta: number;
+  peRatio: number;
+  marketCap: string;
+  volume24h: string;
+  volatility30d: number;
+  sector: string;
+  tokenizedChain: 'Arbitrum' | 'Solana' | 'Ethereum' | 'Native';
+  isWeekendTradingActive: boolean;
+  weekendSpreadBps: number;
+}
+
+export type ShockSeverity = 'mild' | 'severe' | 'black_swan';
+
+export interface StressScenario {
+  id: string;
+  name: string;
+  category: 'Macro' | 'Geopolitical' | 'Liquidity' | 'Tech';
+  description: string;
+  marketShockPct: number;
+  vixSpikePct: number;
+  weekendSpreadMultiplier: number;
+  color: string;
+  iconName: string;
+}
+
+export interface HistoricalAnalog {
+  id: string;
+  name: string;
+  date: string;
+  similarityScore: number;
+  historicalDrawdown: number;
+  durationDays: number;
+  recoveryDays: number;
+  context: string;
+  keyTransmission: string;
+}
+
+export interface QwenAnalysisResponse {
+  summary: string;
+  firstOrder: string;
+  secondOrder: string;
+  thirdOrderWeekend: string;
+  defensiveHedge: {
+    action: string;
+    targetAsset: string;
+    allocationUsd: number;
+    expectedProtectionPct: number;
+  };
+  rebalanceAdvice: string;
+  opportunisticDipPrice: number;
+}
+
+export interface StressResult {
+  symbol: string;
+  scenario: StressScenario;
+  shockSeverity: ShockSeverity;
+  userPositionSize: number;
+  projectedPrice: number;
+  projectedLossUsd: number;
+  projectedDrawdownPct: number;
+  resilienceScore: number;
+  verdict: 'PASSED' | 'FRAGILE' | 'KILL_SWITCH';
+  verdictReason: string;
+  weekendLiquidityPenaltyPct: number;
+  estimatedSlippageUsd: number;
+  fanChart: {
+    day: number;
+    label: string;
+    baselinePrice: number;
+    upperBand: number;
+    lowerBand: number;
+    tailRiskPrice: number;
+  }[];
+  analogs: HistoricalAnalog[];
+  qwenReasoning?: QwenAnalysisResponse;
+}
+
+export interface PresetTradeIdea {
+  title: string;
+  symbol: string;
+  positionUsd: number;
+  thesis: string;
+  recommendedScenarioId: string;
+  tag: string;
+}
+

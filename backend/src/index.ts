@@ -9,6 +9,7 @@ import tradesRouter from './routes/trades';
 import performanceRouter from './routes/performance';
 import backtestRouter from './routes/backtest';
 import streamRouter from './routes/stream';
+import stressTestRouter from './routes/stressTest';
 
 import { BitgetWebSocket } from './services/bitgetWS';
 import { AgentHubClient } from './services/agentHubClient';
@@ -113,6 +114,7 @@ app.use('/api/trades', tradesRouter);
 app.use('/api/performance', performanceRouter);
 app.use('/api/backtest', backtestRouter);
 app.use('/api/stream', streamRouter);
+app.use('/api/stress-test', stressTestRouter);
 
 app.listen(PORT, () => {
   console.log(`🚀 NEXUS Backend — port ${PORT}`);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Wallet, TrendingUp, Target, BarChart3, Pause, Play, Zap } from 'lucide-react';
+import { Wallet, TrendingUp, Target, BarChart3, Pause, Play, Zap, ShieldAlert, ArrowRight } from 'lucide-react';
 import { useNexusStore } from '../store';
 import StatCard from '../components/ui/StatCard';
 import ProgressBar from '../components/ui/ProgressBar';
@@ -52,6 +53,39 @@ export default function Dashboard() {
       transition={{ duration: 0.3 }}
       className="space-y-6"
     >
+      {/* BITGET HACKATHON S2 BANNER */}
+      <div className="bg-gradient-to-r from-nexus-depth to-[#0C1525] p-4 rounded-2xl border border-nexus-accent/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-card">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-nexus-accent/10 flex items-center justify-center border border-nexus-accent/30 flex-shrink-0">
+            <ShieldAlert className="w-5 h-5 text-nexus-accent" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold text-nexus-accent uppercase tracking-wider">
+                Bitget AI Base Camp S2 · Track 3
+              </span>
+              <span className="px-2 py-0.5 rounded bg-nexus-bull/10 text-nexus-bull text-[10px] font-mono">
+                7×24 Simulator Live
+              </span>
+            </div>
+            <div className="text-sm font-display font-bold text-white mt-0.5">
+              7×24 Pre-Trade Stress Simulator & Monte Carlo Fan Chart
+            </div>
+            <p className="text-xs text-nexus-textSecondary mt-0.5">
+              Stress-test tokenized equities (rNVDA, rAAPL, rTSLA, rCOIN) against weekend liquidity traps and black swans using Qwen 3.8 Max.
+            </p>
+          </div>
+        </div>
+
+        <Link
+          to="/stress-test"
+          className="px-4 py-2 rounded-xl bg-nexus-accent text-black font-display font-bold text-xs flex items-center justify-center gap-1.5 hover:opacity-90 transition-all shadow-[0_0_15px_rgba(0,200,255,0.3)] whitespace-nowrap cursor-pointer"
+        >
+          <span>LAUNCH SIMULATOR</span>
+          <ArrowRight className="w-3.5 h-3.5 text-black" />
+        </Link>
+      </div>
+
       {/* STATS ROW */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
