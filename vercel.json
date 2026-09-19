@@ -1,16 +1,46 @@
 {
   "buildCommand": "cd frontend && npm install --include=dev && npm run build",
   "outputDirectory": "frontend/dist",
-  "functions": {
-    "api/**/*.ts": {
-      "includeFiles": "api/_lib/**"
-    }
-  },
   "rewrites": [
+    {
+      "source": "/api/trades/stats",
+      "destination": "/api/trades?sub=stats"
+    },
+    {
+      "source": "/api/trades/open",
+      "destination": "/api/trades?sub=open"
+    },
+    {
+      "source": "/api/regime/current",
+      "destination": "/api/regime?sub=current"
+    },
+    {
+      "source": "/api/regime/history",
+      "destination": "/api/regime?sub=history"
+    },
+    {
+      "source": "/api/performance/equity-curve",
+      "destination": "/api/performance?sub=equity-curve"
+    },
+    {
+      "source": "/api/performance/history",
+      "destination": "/api/performance?sub=history"
+    },
+    {
+      "source": "/api/backtest/results",
+      "destination": "/api/backtest/run"
+    },
+    {
+      "source": "/api/agent/start",
+      "destination": "/api/agent/state?action=start"
+    },
+    {
+      "source": "/api/agent/pause",
+      "destination": "/api/agent/state?action=pause"
+    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]
 }
-

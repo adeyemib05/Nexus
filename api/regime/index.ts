@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { kvGet } from '../db';
-import type { RegimeReading } from '../_lib/engine';
+import { kvGet, type RegimeReading } from '../db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -22,11 +21,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const now = Date.now();
 
   try {
+    const isHistory = req.url?.includes('/history') || req.query.sub === 'history';
+
+    if (isHistory) {
+      const limit = parseInt(req.query.limit as string, 10) || 12;
+      const history: RegimeReading[] = (await kvGet('regimeHistory')) || [];
+
+      // If history in Turso is empty, seed with current agentState regime or a default
+      if (history.length === 0) {
+        const state = await kvGet('agentState');
+        if (state?.currentRegime) {
+          history.push(state.currentRegime);
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: history.slice(0, limit),
+        timestamp: now,
+      });
+    }
+
+    // Default: Return current regime
     const state = await kvGet('agentState');
     let regimeData: RegimeReading | null = state?.currentRegime || null;
 
     if (!regimeData) {
-      // Graceful baseline if cycle hasn't stored regime yet
       regimeData = {
         regime: 'bullish_trend',
         confidence: 74,
@@ -99,10 +119,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       timestamp: now,
     });
   } catch (err: any) {
-    console.error('[Regime Current API] Error:', err);
+    console.error('[Regime API] Error:', err);
     return res.status(500).json({
       success: false,
-      error: err.message || 'Failed to fetch current regime',
+      error: err.message || 'Failed to fetch regime data',
       timestamp: now,
     });
   }

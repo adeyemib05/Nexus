@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { kvGet, kvSet } from '../db';
-import { getDefaultHistoricalTrades, type Trade } from '../_lib/engine';
+import { kvGet, kvSet, getDefaultHistoricalTrades, computeTradeStats, type Trade } from '../db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -28,8 +27,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await kvSet('trades', trades);
     }
 
+    const isStats = req.url?.includes('/stats') || req.query.sub === 'stats';
+    if (isStats) {
+      const stats = computeTradeStats(trades);
+      return res.status(200).json({
+        success: true,
+        data: stats,
+        timestamp: Date.now(),
+      });
+    }
+
     const limitParam = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-    const statusParam = req.query.status as string | undefined;
+    const isOpenSub = req.url?.includes('/open') || req.query.sub === 'open';
+    const statusParam = isOpenSub ? 'open' : (req.query.status as string | undefined);
 
     let filtered = trades;
     if (statusParam) {
