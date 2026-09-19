@@ -1,8 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { fetchHistoricalCandles, fetchCandles, type Candle } from '../_lib/marketData';
-import { computeTechnicalSignal } from '../_lib/signals/technical';
-import { average } from '../_lib/types';
-import type { TradeSide, StrategyType, MarketRegime } from '../_lib/types';
+import {
+  fetchHistoricalCandles,
+  fetchCandles,
+  computeTechnicalSignal,
+  average,
+  type Candle,
+  type TradeSide,
+  type StrategyType,
+  type MarketRegime,
+} from '../engine';
 
 interface SimulatedPosition {
   side: TradeSide;
@@ -198,13 +204,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const grossLosses = Math.abs(losingTrades.reduce((s, t) => s + t.pnl, 0));
     const profitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? 99 : 0;
 
-    let sharpeRatio = 0;
-    const returns = closedTrades.map((t) => t.pnlPct);
-    if (returns.length >= 2) {
-      const meanReturn = average(returns);
-      const stdReturn = Math.sqrt(average(returns.map((r) => Math.pow(r - meanReturn, 2))));
-      if (stdReturn > 0) {
-        sharpeRatio = (meanReturn / stdReturn) * Math.sqrt(365);
+    // Calculate annualized Sharpe ratio from chronological DAILY portfolio equity returns
+    let sharpeRatio: number | null = null;
+    if (equityCurve.length >= 2) {
+      const dailyEquity: number[] = [];
+      let lastDay = -1;
+      for (const pt of equityCurve) {
+        const day = Math.floor(pt.timestamp / (24 * 3600 * 1000));
+        if (day !== lastDay) {
+          dailyEquity.push(pt.value);
+          lastDay = day;
+        } else {
+          dailyEquity[dailyEquity.length - 1] = pt.value;
+        }
+      }
+
+      if (dailyEquity.length >= 3) {
+        const dailyReturns: number[] = [];
+        for (let i = 1; i < dailyEquity.length; i++) {
+          if (dailyEquity[i - 1] > 0) {
+            dailyReturns.push((dailyEquity[i] - dailyEquity[i - 1]) / dailyEquity[i - 1]);
+          }
+        }
+        if (dailyReturns.length >= 2) {
+          const meanDaily = average(dailyReturns);
+          const variance = average(dailyReturns.map((r) => Math.pow(r - meanDaily, 2)));
+          const stdDaily = Math.sqrt(variance);
+          if (stdDaily > 0) {
+            sharpeRatio = parseFloat(((meanDaily / stdDaily) * Math.sqrt(365)).toFixed(2));
+          }
+        }
       }
     }
 
@@ -217,7 +246,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       endDate: candles[candles.length - 1].timestamp,
       totalReturn: parseFloat(totalReturn.toFixed(2)),
       totalReturnPct: parseFloat(totalReturnPct.toFixed(4)),
-      sharpeRatio: parseFloat(sharpeRatio.toFixed(2)),
+      sharpeRatio,
       winRate: parseFloat(winRate.toFixed(4)),
       maxDrawdown: parseFloat(maxDrawdown.toFixed(4)),
       totalTrades: closedTrades.length,

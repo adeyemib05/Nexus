@@ -1,8 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kvGet } from '../db';
-import { getDefaultHistoricalTrades } from '../_lib/tradingEngine';
-import { computeDetailedPerformance } from '../_lib/performanceEngine';
-import type { Trade } from '../_lib/types';
+import { getDefaultHistoricalTrades, computeDetailedPerformance, type Trade } from '../engine';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');

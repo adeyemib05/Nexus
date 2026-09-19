@@ -1,19 +1,20 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kvGet, kvSet } from '../db';
-import { fetchTicker, fetchCandles } from '../_lib/marketData';
-import { computeTechnicalSignal } from '../_lib/signals/technical';
-import { computeSentimentSignal } from '../_lib/signals/sentiment';
-import { computeOnchainSignal } from '../_lib/signals/onchain';
-import { computeMacroSignal } from '../_lib/signals/macro';
-import { computeNewsSignal } from '../_lib/signals/news';
-import { fuseSignals } from '../_lib/signalFusion';
 import {
+  fetchTicker,
+  fetchCandles,
+  computeTechnicalSignal,
+  computeSentimentSignal,
+  computeOnchainSignal,
+  computeMacroSignal,
+  computeNewsSignal,
+  fuseSignals,
   getDefaultHistoricalTrades,
   checkAndClosePositions,
   evaluateAndExecute,
-} from '../_lib/tradingEngine';
-import { computeDetailedPerformance } from '../_lib/performanceEngine';
-import type { Trade } from '../_lib/types';
+  computeDetailedPerformance,
+  type Trade,
+} from '../engine';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');

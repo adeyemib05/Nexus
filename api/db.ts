@@ -181,4 +181,6 @@ export const client = {
   },
 };
 
-export default client;
+export default function handler(req: any, res: any) {
+  res.status(200).json({ status: 'ok', service: 'Turso DB HTTP Pipeline', timestamp: Date.now() });
+}
