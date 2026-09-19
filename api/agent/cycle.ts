@@ -1,19 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kvGet, kvSet } from '../db';
-import { fetchTicker, fetchCandles } from '../lib/marketData';
-import { computeTechnicalSignal } from '../lib/signals/technical';
-import { computeSentimentSignal } from '../lib/signals/sentiment';
-import { computeOnchainSignal } from '../lib/signals/onchain';
-import { computeMacroSignal } from '../lib/signals/macro';
-import { computeNewsSignal } from '../lib/signals/news';
-import { fuseSignals } from '../lib/signalFusion';
+import { fetchTicker, fetchCandles } from '../../lib/marketData';
+import { computeTechnicalSignal } from '../../lib/signals/technical';
+import { computeSentimentSignal } from '../../lib/signals/sentiment';
+import { computeOnchainSignal } from '../../lib/signals/onchain';
+import { computeMacroSignal } from '../../lib/signals/macro';
+import { computeNewsSignal } from '../../lib/signals/news';
+import { fuseSignals } from '../../lib/signalFusion';
 import {
   getDefaultHistoricalTrades,
   checkAndClosePositions,
   evaluateAndExecute,
-} from '../lib/tradingEngine';
-import { computeDetailedPerformance } from '../lib/performanceEngine';
-import type { Trade } from '../lib/types';
+} from '../../lib/tradingEngine';
+import { computeDetailedPerformance } from '../../lib/performanceEngine';
+import type { Trade } from '../../lib/types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');

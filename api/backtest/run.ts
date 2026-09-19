@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { fetchHistoricalCandles, fetchCandles, type Candle } from '../lib/marketData';
-import { computeTechnicalSignal } from '../lib/signals/technical';
-import { average } from '../lib/types';
-import type { TradeSide, StrategyType, MarketRegime } from '../lib/types';
+import { fetchHistoricalCandles, fetchCandles, type Candle } from '../../lib/marketData';
+import { computeTechnicalSignal } from '../../lib/signals/technical';
+import { average } from '../../lib/types';
+import type { TradeSide, StrategyType, MarketRegime } from '../../lib/types';
 
 interface SimulatedPosition {
   side: TradeSide;
