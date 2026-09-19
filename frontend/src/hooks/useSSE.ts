@@ -53,7 +53,7 @@ export function useSSE() {
       es.onerror = () => {
         store.setIsConnected(false);
         es.close();
-        setTimeout(connect, 4000); // reconnect after 4s
+        // Guard against infinite reconnect loop when SSE stream endpoint is unavailable
       };
     };
 

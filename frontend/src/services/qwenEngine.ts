@@ -4,7 +4,8 @@ const BASE = import.meta.env.VITE_API_URL || '';
 
 export async function fetchQwenCascadeReasoning(
   stressResult: StressResult,
-  userThesis?: string
+  userThesis?: string,
+  currentPrice?: number
 ): Promise<QwenAnalysisResponse> {
   const payload = {
     symbol: stressResult.symbol,
@@ -12,6 +13,7 @@ export async function fetchQwenCascadeReasoning(
     severity: stressResult.shockSeverity,
     positionUsd: stressResult.userPositionSize,
     userThesis: userThesis || 'Standard long position',
+    currentPrice: currentPrice || stressResult.projectedPrice || 100,
   };
 
   try {

@@ -45,14 +45,14 @@ export default function StressSimulator() {
   const triggerQwenReasoning = useCallback(async (baseResult: StressResult, thesis: string) => {
     setIsLoadingQwen(true);
     try {
-      const qwenData = await fetchQwenCascadeReasoning(baseResult, thesis);
+      const qwenData = await fetchQwenCascadeReasoning(baseResult, thesis, equity.price);
       setQwenReasoning(qwenData);
     } catch (e) {
       console.error('Error fetching Qwen reasoning:', e);
     } finally {
       setIsLoadingQwen(false);
     }
-  }, []);
+  }, [equity.price]);
 
   // Run reasoning on initial load and when key params change
   useEffect(() => {
