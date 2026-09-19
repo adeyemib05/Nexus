@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, AlertTriangle, XOctagon, Lock, DollarSign, TrendingDown, Clock } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, XOctagon, Clock } from 'lucide-react';
 import { StressResult, EquityData } from '../../types';
 
 interface PreFlightVerdictProps {
@@ -103,7 +103,9 @@ export const PreFlightVerdict: React.FC<PreFlightVerdictProps> = ({ result, equi
           <div className="bg-[#06090F] p-3 rounded-xl border border-white/[0.06]">
             <div className="flex items-center justify-between text-gray-400 mb-1">
               <span className="text-[11px] font-mono uppercase">Loss At Risk</span>
-              <DollarSign className="w-3.5 h-3.5 text-[#EF4444]" />
+              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-red-500/10 text-red-400 border border-red-500/20">
+                SIMULATED
+              </span>
             </div>
             <div className="text-lg font-bold font-mono text-[#EF4444]">
               -${projectedLossUsd.toLocaleString()}
@@ -117,7 +119,9 @@ export const PreFlightVerdict: React.FC<PreFlightVerdictProps> = ({ result, equi
           <div className="bg-[#06090F] p-3 rounded-xl border border-white/[0.06]">
             <div className="flex items-center justify-between text-gray-400 mb-1">
               <span className="text-[11px] font-mono uppercase">Drawdown</span>
-              <TrendingDown className="w-3.5 h-3.5 text-[#EF4444]" />
+              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-white/5 text-gray-400 border border-white/10">
+                STRESS
+              </span>
             </div>
             <div className="text-lg font-bold font-mono text-white">
               -{projectedDrawdownPct}%
@@ -133,6 +137,9 @@ export const PreFlightVerdict: React.FC<PreFlightVerdictProps> = ({ result, equi
               <span className="text-[11px] font-mono uppercase flex items-center gap-1">
                 <Clock className="w-3 h-3 text-[#00C8FF]" /> 7×24 Penalty
               </span>
+              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                EST. SPREAD
+              </span>
             </div>
             <div className="text-lg font-bold font-mono text-[#00C8FF]">
               +{weekendLiquidityPenaltyPct}%
@@ -146,7 +153,9 @@ export const PreFlightVerdict: React.FC<PreFlightVerdictProps> = ({ result, equi
           <div className="bg-[#06090F] p-3 rounded-xl border border-white/[0.06]">
             <div className="flex items-center justify-between text-gray-400 mb-1">
               <span className="text-[11px] font-mono uppercase">Floor Target</span>
-              <Lock className="w-3.5 h-3.5 text-[#10B981]" />
+              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                PROJECTED
+              </span>
             </div>
             <div className="text-lg font-bold font-mono text-[#10B981]">
               ${projectedPrice}
@@ -163,7 +172,17 @@ export const PreFlightVerdict: React.FC<PreFlightVerdictProps> = ({ result, equi
         <span className="font-mono text-[#00C8FF] font-semibold whitespace-nowrap">
           QUANT AUDIT:
         </span>
-        <p className="leading-relaxed text-gray-300">{verdictReason}</p>
+        <div className="space-y-1">
+          <p className="leading-relaxed text-gray-300">{verdictReason}</p>
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-[10px] font-mono text-gray-500">
+            <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
+              SCENARIO ASSUMPTION: {result.scenario.name} ({result.scenario.marketShockPct}%)
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
+              MODEL: Analytical Parametric Volatility Cone + Beta Drag
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
