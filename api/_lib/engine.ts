@@ -164,11 +164,18 @@ function ema(values: number[], period: number): number[] {
 
 const BITGET_BASE_URL = 'https://api.bitget.com';
 
+function getTimeoutSignal(ms: number): any {
+  if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function') {
+    return (AbortSignal as any).timeout(ms);
+  }
+  return undefined;
+}
+
 export async function fetchTicker(symbol = 'BTCUSDT'): Promise<PriceTicker | null> {
   try {
     const res = await fetch(`${BITGET_BASE_URL}/api/v2/spot/market/tickers?symbol=${symbol}`, {
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(5000),
+      signal: getTimeoutSignal(5000),
     });
 
     if (!res.ok) return null;
@@ -205,7 +212,7 @@ export async function fetchCandles(
     const url = `${BITGET_BASE_URL}/api/v2/spot/market/history-candles?symbol=${symbol}&granularity=${normG}&limit=${limit}&endTime=${Date.now()}`;
     const res = await fetch(url, {
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(6000),
+      signal: getTimeoutSignal(6000),
     });
 
     if (!res.ok) return [];
@@ -244,7 +251,7 @@ export async function fetchHistoricalCandles(
       const url = `${BITGET_BASE_URL}/api/v2/spot/market/history-candles?symbol=${symbol}&granularity=${normG}&limit=200&endTime=${currentEnd}`;
       const res = await fetch(url, {
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(5000),
+        signal: getTimeoutSignal(5000),
       });
 
       if (!res.ok) break;
@@ -428,7 +435,7 @@ export async function computeSentimentSignal(symbol = 'BTCUSDT'): Promise<Signal
 
   try {
     const res = await fetch('https://api.alternative.me/fng/?limit=1', {
-      signal: AbortSignal.timeout(3500),
+      signal: getTimeoutSignal(3500),
     });
     if (res.ok) {
       const json = await res.json();
@@ -448,7 +455,7 @@ export async function computeSentimentSignal(symbol = 'BTCUSDT'): Promise<Signal
 
   try {
     const res = await fetch(`${BITGET_BASE_URL}/api/v2/mix/market/current-fund-rate?symbol=${symbol}&productType=USDT-FUTURES`, {
-      signal: AbortSignal.timeout(3500),
+      signal: getTimeoutSignal(3500),
     });
     if (res.ok) {
       const json = await res.json();
@@ -516,7 +523,7 @@ export async function computeOnchainSignal(): Promise<SignalReading> {
 
   try {
     const res = await fetch('https://mempool.space/api/v1/fees/recommended', {
-      signal: AbortSignal.timeout(3500),
+      signal: getTimeoutSignal(3500),
     });
     if (res.ok) {
       const fees = await res.json();
@@ -535,7 +542,7 @@ export async function computeOnchainSignal(): Promise<SignalReading> {
 
   try {
     const res = await fetch('https://api.llama.fi/v2/historicalChainTvl/Bitcoin', {
-      signal: AbortSignal.timeout(3500),
+      signal: getTimeoutSignal(3500),
     });
     if (res.ok) {
       const data = await res.json();
@@ -665,7 +672,7 @@ export async function computeNewsSignal(): Promise<SignalReading> {
 
   try {
     const res = await fetch('https://min-api.cryptocompare.com/data/v2/news/?lang=EN', {
-      signal: AbortSignal.timeout(3500),
+      signal: getTimeoutSignal(3500),
     });
 
     if (res.ok) {

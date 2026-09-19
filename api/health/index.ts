@@ -15,9 +15,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 1. Probe Bitget REST reachability
   let bitgetApiReachable = false;
   try {
-    const bitgetRes = await fetch('https://api.bitget.com/api/v2/spot/market/tickers?symbol=BTCUSDT', {
-      signal: AbortSignal.timeout(3000),
-    });
+    const signal = typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function'
+      ? (AbortSignal as any).timeout(3000)
+      : undefined;
+    const bitgetRes = await fetch('https://api.bitget.com/api/v2/spot/market/tickers?symbol=BTCUSDT', { signal });
     bitgetApiReachable = bitgetRes.ok;
   } catch {
     bitgetApiReachable = false;
