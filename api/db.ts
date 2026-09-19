@@ -1,110 +1,58 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@libsql/client';
 
-// Shared Turso Cloud SQLite KV-Store Client for Vercel Serverless Functions
-// Uses stateless HTTP transport for high resilience and zero cold starts.
+const client = createClient({
+  url: process.env.TURSO_URL || '',
+  authToken: process.env.TURSO_AUTH_TOKEN || '',
+});
 
-let clientInstance: any = null;
-let initPromise: Promise<any> | null = null;
+let initPromise: Promise<void> | null = null;
 
-export async function getTursoClient() {
-  const url = process.env.TURSO_URL;
-  const authToken = process.env.TURSO_AUTH_TOKEN;
-
-  if (!url || !authToken) {
-    return null;
-  }
-
-  if (clientInstance) {
-    return clientInstance;
-  }
-
-  if (initPromise) {
-    return initPromise;
-  }
-
-  initPromise = (async () => {
-    try {
-      let createClientFn: any = null;
-
-      // Safe dynamic import to prevent bundler failure when @libsql/client is not installed
+export async function initDb(): Promise<void> {
+  if (!initPromise) {
+    initPromise = (async () => {
       try {
-        const mod = await import('@libsql/client');
-        createClientFn = mod.createClient;
-      } catch {
-        const req = typeof require !== 'undefined' ? require : null;
-        if (req) {
-          try {
-            const mod = req('@libsql/client');
-            createClientFn = mod.createClient;
-          } catch {
-            // Package not yet installed in node_modules
-          }
-        }
+        await client.execute(`
+          CREATE TABLE IF NOT EXISTS kv_store (
+            key TEXT PRIMARY KEY,
+            value TEXT
+          )
+        `);
+      } catch (err) {
+        console.warn('[Turso initDb] Failed to create kv_store table:', err);
+        initPromise = null;
       }
-
-      if (!createClientFn) {
-        return null;
-      }
-
-      const client = createClientFn({
-        url,
-        authToken,
-      });
-
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS kv_store (
-          key TEXT PRIMARY KEY,
-          value TEXT
-        )
-      `);
-
-      clientInstance = client;
-      return clientInstance;
-    } catch (err) {
-      console.warn('[Turso] Client initialization failed:', err);
-      return null;
-    }
-  })();
-
+    })();
+  }
   return initPromise;
 }
 
-export async function kvGet<T = any>(key: string): Promise<T | null> {
+export async function kvGet(key: string): Promise<any | null> {
   try {
-    const client = await getTursoClient();
-    if (!client) return null;
-
-    const res = await client.execute({
+    await initDb();
+    const result = await client.execute({
       sql: 'SELECT value FROM kv_store WHERE key = ?',
       args: [key],
     });
-
-    if (!res.rows || res.rows.length === 0 || !res.rows[0]?.value) {
+    if (!result.rows || result.rows.length === 0 || !result.rows[0]?.value) {
       return null;
     }
-
-    return JSON.parse(res.rows[0].value as string) as T;
+    return JSON.parse(result.rows[0].value as string);
   } catch (err) {
-    console.warn(`[Turso kvGet] Error retrieving key "${key}":`, err);
+    console.warn(`[Turso kvGet] Error reading "${key}":`, err);
     return null;
   }
 }
 
-export async function kvSet(key: string, value: unknown): Promise<boolean> {
+export async function kvSet(key: string, value: unknown): Promise<void> {
   try {
-    const client = await getTursoClient();
-    if (!client) return false;
-
-    const serialized = JSON.stringify(value);
+    await initDb();
     await client.execute({
-      sql: 'INSERT INTO kv_store (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-      args: [key, serialized],
+      sql: 'INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)',
+      args: [key, JSON.stringify(value)],
     });
-    return true;
   } catch (err) {
-    console.warn(`[Turso kvSet] Error saving key "${key}":`, err);
-    return false;
+    console.warn(`[Turso kvSet] Error writing "${key}":`, err);
   }
 }
 
-export default clientInstance;
+export default client;
