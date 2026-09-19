@@ -2,15 +2,15 @@
 // Uses direct stateless HTTP pipeline for zero-cold-start performance and 100% compatibility.
 
 function getEndpoint(): { url: string; token: string } | null {
-  const rawUrl = process.env.TURSO_URL;
-  const token = process.env.TURSO_AUTH_TOKEN;
+  const rawUrl = process.env.TURSO_URL ? process.env.TURSO_URL.replace(/["']/g, '').trim() : null;
+  const token = process.env.TURSO_AUTH_TOKEN ? process.env.TURSO_AUTH_TOKEN.replace(/["']/g, '').trim() : null;
 
   if (!rawUrl || !token) {
     return null;
   }
 
   // Convert libsql:// to https://
-  let base = rawUrl.trim();
+  let base = rawUrl;
   if (base.startsWith('libsql://')) {
     base = base.replace('libsql://', 'https://');
   } else if (!base.startsWith('http://') && !base.startsWith('https://')) {
@@ -22,7 +22,7 @@ function getEndpoint(): { url: string; token: string } | null {
 
   return {
     url: `${base}/v2/pipeline`,
-    token: token.trim(),
+    token,
   };
 }
 
@@ -92,25 +92,29 @@ export async function kvGet(key: string): Promise<any | null> {
 
     const data = await res.json();
     const rows = data?.results?.[0]?.response?.result?.rows;
-    if (!rows || rows.length === 0 || !rows[0]?.[0]?.value) {
+    if (!rows || rows.length === 0 || !rows[0]?.[0]) {
       return null;
     }
 
-    return JSON.parse(rows[0][0].value);
+    const cell = rows[0][0];
+    const valueStr = typeof cell === 'object' && cell !== null && 'value' in cell ? cell.value : cell;
+    if (!valueStr) return null;
+
+    return JSON.parse(valueStr);
   } catch (err) {
     console.warn(`[Turso kvGet] Error reading "${key}":`, err);
     return null;
   }
 }
 
-export async function kvSet(key: string, value: unknown): Promise<void> {
+export async function kvSet(key: string, value: unknown): Promise<boolean> {
   const endpoint = getEndpoint();
-  if (!endpoint) return;
+  if (!endpoint) return false;
 
   try {
     await initDb();
     const serialized = JSON.stringify(value);
-    await fetch(endpoint.url, {
+    const res = await fetch(endpoint.url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${endpoint.token}`,
@@ -132,8 +136,11 @@ export async function kvSet(key: string, value: unknown): Promise<void> {
         ],
       }),
     });
+
+    return res.ok;
   } catch (err) {
     console.warn(`[Turso kvSet] Error saving "${key}":`, err);
+    return false;
   }
 }
 

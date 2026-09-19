@@ -51,6 +51,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       success: true,
       data: agentState,
+      _db: {
+        hasUrl: !!process.env.TURSO_URL,
+        hasToken: !!process.env.TURSO_AUTH_TOKEN,
+        stored: !!storedState,
+      },
       timestamp: now,
     });
   } catch (error: any) {

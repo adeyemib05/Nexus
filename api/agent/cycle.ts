@@ -134,7 +134,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     };
 
-    await kvSet('agentState', updatedState);
+    const setOk = await kvSet('agentState', updatedState);
 
     // 5. Return execution summary
     return res.status(200).json({
@@ -142,6 +142,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       cycleCount: nextCycleCount,
       price,
       regime,
+      _db: {
+        hasUrl: !!process.env.TURSO_URL,
+        hasToken: !!process.env.TURSO_AUTH_TOKEN,
+        previousStateFound: !!existingState,
+      },
       timestamp: now,
     });
   } catch (error: any) {
