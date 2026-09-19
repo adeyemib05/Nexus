@@ -6,13 +6,9 @@ function getEndpoint(): { url: string; token: string } | null {
     process.env.TURSO_URL ||
     process.env.TURSO_DATABASE_URL ||
     process.env.TURSO_DB_URL ||
-    process.env.DATABASE_URL
-  ) ? (
-    process.env.TURSO_URL ||
-    process.env.TURSO_DATABASE_URL ||
-    process.env.TURSO_DB_URL ||
-    process.env.DATABASE_URL
-  )!.replace(/["']/g, '').trim() : null;
+    process.env.DATABASE_URL ||
+    'libsql://nexus-production-adeyemib05.aws-us-east-1.turso.io'
+  ).replace(/["']/g, '').trim();
 
   const token = (
     process.env.TURSO_AUTH_TOKEN ||
