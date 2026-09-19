@@ -2,8 +2,27 @@
 // Uses direct stateless HTTP pipeline for zero-cold-start performance and 100% compatibility.
 
 function getEndpoint(): { url: string; token: string } | null {
-  const rawUrl = process.env.TURSO_URL ? process.env.TURSO_URL.replace(/["']/g, '').trim() : null;
-  const token = process.env.TURSO_AUTH_TOKEN ? process.env.TURSO_AUTH_TOKEN.replace(/["']/g, '').trim() : null;
+  const rawUrl = (
+    process.env.TURSO_URL ||
+    process.env.TURSO_DATABASE_URL ||
+    process.env.TURSO_DB_URL ||
+    process.env.DATABASE_URL
+  ) ? (
+    process.env.TURSO_URL ||
+    process.env.TURSO_DATABASE_URL ||
+    process.env.TURSO_DB_URL ||
+    process.env.DATABASE_URL
+  )!.replace(/["']/g, '').trim() : null;
+
+  const token = (
+    process.env.TURSO_AUTH_TOKEN ||
+    process.env.TURSO_TOKEN ||
+    process.env.TURSO_DB_TOKEN
+  ) ? (
+    process.env.TURSO_AUTH_TOKEN ||
+    process.env.TURSO_TOKEN ||
+    process.env.TURSO_DB_TOKEN
+  )!.replace(/["']/g, '').trim() : null;
 
   if (!rawUrl || !token) {
     return null;
