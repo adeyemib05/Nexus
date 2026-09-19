@@ -7,7 +7,7 @@
 export type SignalType = 'macro' | 'technical' | 'sentiment' | 'onchain' | 'news';
 export type MarketRegime = 'bullish_trend' | 'bearish_trend' | 'ranging' | 'uncertain';
 export type StrategyType = 'momentum_long' | 'momentum_short' | 'mean_reversion' | 'capital_protection';
-export type SignalStrength = 'strong_bullish' | 'weak_bullish' | 'neutral' | 'weak_bearish' | 'strong_bearish';
+export type SignalStrength = 'strong_bullish' | 'weak_bullish' | 'neutral' | 'weak_bearish' | 'strong_bearish' | 'bullish' | 'bearish';
 export type TradeSide = 'long' | 'short';
 
 export interface Candle {
@@ -37,7 +37,7 @@ export interface SignalReading {
   confidence: number;   // [0.0, 1.0]
   label: string;
   source: 'live' | 'local' | 'fallback';
-  available: boolean;   // false if provider failed
+  available?: boolean; // false if provider failed
   details: Record<string, unknown>;
   timestamp: number;
 }
