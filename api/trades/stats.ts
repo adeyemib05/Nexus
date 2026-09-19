@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kvGet } from '../db';
 import { getDefaultHistoricalTrades } from '../lib/tradingEngine';
-import { computeDetailedPerformance } from '../lib/performanceEngine';
+import { computeTradeStats } from '../lib/performanceEngine';
 import type { Trade } from '../lib/types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -22,39 +22,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const [storedTrades, state] = await Promise.all([
-      kvGet('trades'),
-      kvGet('agentState'),
-    ]);
-
-    let trades: Trade[] = storedTrades || [];
+    let trades: Trade[] = (await kvGet('trades')) || [];
     if (trades.length === 0) {
       trades = getDefaultHistoricalTrades();
     }
 
-    const currentPrice = state?.lastPrice || 81500;
-    const perf = computeDetailedPerformance(trades, currentPrice);
+    const stats = computeTradeStats(trades);
 
     return res.status(200).json({
       success: true,
-      data: {
-        timestamp: Date.now(),
-        portfolioValue: perf.portfolioValue,
-        totalPnl: perf.totalPnl,
-        totalPnlPct: perf.totalPnlPct,
-        sharpeRatio: perf.sharpeRatio,
-        winRate: perf.winRate,
-        maxDrawdown: perf.maxDrawdown,
-        totalTrades: trades.length,
-        openTrades: perf.openTradesCount,
-      },
+      data: stats,
       timestamp: Date.now(),
     });
-  } catch (error: any) {
-    console.error('[Performance API] Error:', error);
+  } catch (err: any) {
+    console.error('[Trades Stats API] Error:', err);
     return res.status(500).json({
       success: false,
-      error: error.message || 'Failed to compute performance',
+      error: err.message || 'Failed to compute trade statistics',
       timestamp: Date.now(),
     });
   }

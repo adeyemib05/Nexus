@@ -1,5 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kvGet, kvSet } from '../db';
+import { fetchTicker, fetchCandles } from '../lib/marketData';
+import { computeTechnicalSignal } from '../lib/signals/technical';
+import { computeSentimentSignal } from '../lib/signals/sentiment';
+import { computeOnchainSignal } from '../lib/signals/onchain';
+import { computeMacroSignal } from '../lib/signals/macro';
+import { computeNewsSignal } from '../lib/signals/news';
+import { fuseSignals } from '../lib/signalFusion';
+import {
+  getDefaultHistoricalTrades,
+  checkAndClosePositions,
+  evaluateAndExecute,
+} from '../lib/tradingEngine';
+import { computeDetailedPerformance } from '../lib/performanceEngine';
+import type { Trade } from '../lib/types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -33,115 +47,122 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const previousCount = existingState?.cycleCount ?? 847;
-    const previousPrice = existingState?.lastPrice ?? 81000;
-    const portfolioValue = existingState?.portfolioValue ?? 11240;
-
-    // 2. Fetch BTC price from Bitget public REST
-    let price = 81268.6;
-    try {
-      const bitgetRes = await fetch('https://api.bitget.com/api/v2/spot/market/tickers?symbol=BTCUSDT', {
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (bitgetRes.ok) {
-        const json = await bitgetRes.json();
-        const rawPrice = json?.data?.[0]?.lastPr;
-        if (rawPrice) {
-          price = parseFloat(rawPrice);
-        }
-      }
-    } catch (err) {
-      console.warn('[NEXUS Agent Cycle] Bitget price fetch failed, using fallback:', err);
-    }
-
-    // 3. Simple regime calculation based on price movement
-    const priceDelta = price - previousPrice;
-    const regime = priceDelta >= 0 ? 'bullish_trend' : 'bearish_trend';
-    const confidence = priceDelta >= 0 ? 74 : 68;
+    const previousCount = existingState?.cycleCount ?? 920;
     const nextCycleCount = previousCount + 1;
 
-    // 4. Update agent state in Turso
+    // 2. Load and initialize trade ledger
+    let storedTrades: Trade[] = (await kvGet('trades')) || [];
+    if (storedTrades.length === 0) {
+      storedTrades = getDefaultHistoricalTrades();
+    }
+
+    // 3. Fetch live market data from Bitget
+    const [ticker, candles] = await Promise.all([
+      fetchTicker('BTCUSDT'),
+      fetchCandles('BTCUSDT', '1h', 100),
+    ]);
+
+    const currentPrice = ticker?.price || existingState?.lastPrice || 81500;
+
+    // 4. Run all 5 live signal engines in parallel
+    const [technical, sentiment, onchain, macro, news] = await Promise.all([
+      computeTechnicalSignal(candles),
+      computeSentimentSignal('BTCUSDT'),
+      computeOnchainSignal(),
+      computeMacroSignal(ticker),
+      computeNewsSignal(),
+    ]);
+
+    const signals = [technical, macro, sentiment, onchain, news];
+
+    // 5. Signal Fusion & Regime Classification
+    const regime = fuseSignals(signals);
+
+    // 6. Check open positions against live BTC price (SL/TP/Timeout)
+    const { updatedTrades: afterClose, closedTrades } = checkAndClosePositions(storedTrades, currentPrice);
+
+    // 7. Strategy Evaluation & Simulated Order Execution
+    const currentPortfolioValue = existingState?.portfolioValue || 11240;
+    const { updatedTrades: finalTrades, newTrade } = evaluateAndExecute(
+      afterClose,
+      regime,
+      currentPrice,
+      currentPortfolioValue,
+      nextCycleCount
+    );
+
+    // 8. Reconcile performance metrics
+    const perf = computeDetailedPerformance(finalTrades, currentPrice);
+
+    // 9. Update regime history in Turso (retain last 50 snapshots)
+    const storedRegimeHistory = (await kvGet('regimeHistory')) || [];
+    const updatedRegimeHistory = [
+      {
+        cycleId: nextCycleCount,
+        regime: regime.regime,
+        confidence: regime.confidence,
+        fusedScore: regime.fusedScore,
+        signals,
+        timestamp: now,
+        price: currentPrice,
+      },
+      ...storedRegimeHistory,
+    ].slice(0, 50);
+
+    // 10. Update equity curve in Turso
+    const storedEquityCurve = (await kvGet('equityCurve')) || [];
+    const updatedEquityCurve = [
+      ...storedEquityCurve,
+      { timestamp: now, value: perf.portfolioValue },
+    ].slice(-100);
+
+    // 11. Compile full agent state
     const updatedState = {
-      ...(existingState || {}),
       status: 'running',
       cycleCount: nextCycleCount,
-      portfolioValue,
+      portfolioValue: perf.portfolioValue,
       initialPortfolioValue: 10000,
-      currentDrawdown: 0.034,
+      currentDrawdown: perf.currentDrawdown,
       lastCycleAt: now,
-      lastPrice: price,
+      lastPrice: currentPrice,
       startedAt: existingState?.startedAt ?? (now - 14 * 24 * 60 * 60 * 1000),
-      currentRegime: {
-        regime,
-        confidence,
-        fusedScore: regime === 'bullish_trend' ? 0.58 : -0.32,
-        signals: [
-          {
-            type: 'technical',
-            score: regime === 'bullish_trend' ? 0.65 : -0.28,
-            strength: regime === 'bullish_trend' ? 'bullish' : 'bearish',
-            confidence: 0.8,
-            label: 'Technical Momentum (EMA/RSI)',
-            source: 'local',
-            details: { btcPrice: price, delta: priceDelta },
-            timestamp: now,
-          },
-          {
-            type: 'macro',
-            score: 0.41,
-            strength: 'bullish',
-            confidence: 0.7,
-            label: 'Macro Liquidity Index',
-            source: 'local',
-            details: { fedRate: 'neutral' },
-            timestamp: now,
-          },
-          {
-            type: 'sentiment',
-            score: regime === 'bullish_trend' ? 0.61 : 0.45,
-            strength: 'bullish',
-            confidence: 0.74,
-            label: 'Derivatives & Social Sentiment',
-            source: 'local',
-            details: { fundingRate: 0.008 },
-            timestamp: now,
-          },
-          {
-            type: 'onchain',
-            score: 0.55,
-            strength: 'bullish',
-            confidence: 0.76,
-            label: 'Exchange Netflow & Whale Accumulation',
-            source: 'local',
-            details: { netOutflow: 'positive' },
-            timestamp: now,
-          },
-          {
-            type: 'news',
-            score: 0.49,
-            strength: 'bullish',
-            confidence: 0.68,
-            label: 'Institutional News Flow',
-            source: 'local',
-            details: { headlineScore: 0.52 },
-            timestamp: now,
-          },
-        ],
-        timestamp: now,
-        reasoning: regime === 'bullish_trend'
-          ? `BTC spot price at $${price.toLocaleString()}. Telemetry confirms bullish trend continuation.`
-          : `BTC spot price at $${price.toLocaleString()}. Telemetry shifting defensive.`,
+      currentRegime: regime,
+      performance: {
+        portfolioValue: perf.portfolioValue,
+        totalPnl: perf.totalPnl,
+        totalPnlPct: perf.totalPnlPct,
+        sharpeRatio: perf.sharpeRatio,
+        winRate: perf.winRate,
+        maxDrawdown: perf.maxDrawdown,
       },
     };
 
-    await kvSet('agentState', updatedState);
+    // 12. Persist updated telemetry to Turso SQLite
+    await Promise.all([
+      kvSet('agentState', updatedState),
+      kvSet('trades', finalTrades),
+      kvSet('regimeHistory', updatedRegimeHistory),
+      kvSet('equityCurve', updatedEquityCurve),
+    ]);
 
-    // 5. Return execution summary
+    // 13. Return rich execution summary
     return res.status(200).json({
       success: true,
       cycleCount: nextCycleCount,
-      price,
-      regime,
+      price: currentPrice,
+      regime: regime.regime,
+      confidence: regime.confidence,
+      fusedScore: regime.fusedScore,
+      signals: signals.map((s) => ({
+        type: s.type,
+        score: s.score,
+        strength: s.strength,
+        confidence: s.confidence,
+      })),
+      tradesCount: finalTrades.length,
+      newTrade: newTrade ? { id: newTrade.id, side: newTrade.side, strategy: newTrade.strategy } : null,
+      closedTradesCount: closedTrades.length,
+      portfolioValue: perf.portfolioValue,
       timestamp: now,
     });
   } catch (error: any) {
