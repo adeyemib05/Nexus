@@ -1,6 +1,11 @@
 {
   "buildCommand": "cd frontend && npm install --include=dev && npm run build",
   "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/**/*.ts": {
+      "includeFiles": "api/_lib/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/((?!api/).*)",

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "dependencies": {
     "@libsql/client": "^0.14.0",
-    "@vercel/node": "^3.0.0"
+    "@types/node": "^20.11.5",
+    "@vercel/node": "^3.0.0",
+    "typescript": "^5.3.3"
   }
 }
+
