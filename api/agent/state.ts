@@ -54,6 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       _db: {
         hasUrl: !!(process.env.TURSO_URL || process.env.TURSO_DATABASE_URL || process.env.TURSO_DB_URL || process.env.DATABASE_URL),
         hasToken: !!(process.env.TURSO_AUTH_TOKEN || process.env.TURSO_TOKEN || process.env.TURSO_DB_TOKEN),
+        matchedKeys: Object.keys(process.env).filter(k => k.toLowerCase().includes('turso') || k.toLowerCase().includes('url')),
         stored: !!storedState,
       },
       timestamp: now,
