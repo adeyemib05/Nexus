@@ -8,7 +8,7 @@ import {
   type TradeSide,
   type StrategyType,
   type MarketRegime,
-} from '../engine';
+} from '../_lib/engine';
 
 interface SimulatedPosition {
   side: TradeSide;

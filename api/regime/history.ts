@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kvGet } from '../db';
-import type { RegimeReading } from '../engine';
+import type { RegimeReading } from '../_lib/engine';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');

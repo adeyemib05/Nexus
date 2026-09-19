@@ -14,7 +14,7 @@ import {
   evaluateAndExecute,
   computeDetailedPerformance,
   type Trade,
-} from '../engine';
+} from '../_lib/engine';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
