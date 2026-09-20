@@ -539,7 +539,8 @@ function checkAndClosePositions(trades: Trade[], currentPrice: number): { update
   const closedTrades: Trade[] = [];
 
   const updatedTrades = trades.map((trade) => {
-    if (trade.status !== 'open') return trade;
+    // Isolate live agent: only manage live_simulated positions. Historical seed trades are immutable.
+    if (trade.status !== 'open' || trade.source !== 'live_simulated') return trade;
 
     const isLong = trade.side === 'long';
     const hitSL = isLong ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss;
@@ -582,12 +583,32 @@ function evaluateAndExecute(
   portfolioValue: number,
   cycleCount: number
 ): { updatedTrades: Trade[]; newTrade: Trade | null } {
-  const openTrades = trades.filter((t) => t.status === 'open');
-  const hasOpenLong = openTrades.some((t) => t.side === 'long');
-  const hasOpenShort = openTrades.some((t) => t.side === 'short');
+  // Only inspect live_simulated open positions. Historical seed trades must never block live entries.
+  const openLiveTrades = trades.filter((t) => t.status === 'open' && t.source === 'live_simulated');
+  const hasOpenLong = openLiveTrades.some((t) => t.side === 'long');
+  const hasOpenShort = openLiveTrades.some((t) => t.side === 'short');
 
   let newTrade: Trade | null = null;
   const now = Date.now();
+
+  // 15-Minute Re-Entry Cooldown for live_simulated trading (derived from persisted trades)
+  const COOLDOWN_MS = 15 * 60 * 1000;
+  const recentClosedLiveLong = trades.some(
+    (t) =>
+      t.source === 'live_simulated' &&
+      t.status === 'closed' &&
+      t.side === 'long' &&
+      t.closedAt &&
+      now - t.closedAt < COOLDOWN_MS
+  );
+  const recentClosedLiveShort = trades.some(
+    (t) =>
+      t.source === 'live_simulated' &&
+      t.status === 'closed' &&
+      t.side === 'short' &&
+      t.closedAt &&
+      now - t.closedAt < COOLDOWN_MS
+  );
 
   let sizePct = 0.015;
   if (regime.confidence >= 80) sizePct = 0.02;
@@ -595,7 +616,7 @@ function evaluateAndExecute(
 
   const positionSizeUSD = Math.round(portfolioValue * sizePct);
 
-  if (regime.regime === 'bullish_trend' && !hasOpenLong) {
+  if (regime.regime === 'bullish_trend' && !hasOpenLong && !recentClosedLiveLong) {
     const sl = parseFloat((currentPrice * (1 - 0.025)).toFixed(2));
     const tp = parseFloat((currentPrice * (1 + 0.060)).toFixed(2));
 
@@ -617,7 +638,7 @@ function evaluateAndExecute(
       source: 'live_simulated',
       cycleId: cycleCount,
     };
-  } else if (regime.regime === 'bearish_trend' && !hasOpenShort) {
+  } else if (regime.regime === 'bearish_trend' && !hasOpenShort && !recentClosedLiveShort) {
     const sl = parseFloat((currentPrice * (1 + 0.025)).toFixed(2));
     const tp = parseFloat((currentPrice * (1 - 0.060)).toFixed(2));
 
@@ -694,7 +715,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fetchCandles('BTCUSDT', '1h', 100),
     ]);
 
-    const currentPrice = ticker?.price || existingState?.lastPrice || 81500;
+    // Resolve market price with fail-closed safety (no arbitrary hardcoded constant)
+    const currentPrice =
+      ticker?.price && ticker.price > 0
+        ? ticker.price
+        : existingState?.lastPrice && existingState.lastPrice > 0
+        ? existingState.lastPrice
+        : null;
+
+    if (!currentPrice) {
+      return res.status(503).json({
+        success: false,
+        error: 'Market data unavailable: unable to resolve live Bitget price or last known valid price. Cycle safely halted.',
+        timestamp: now,
+      });
+    }
 
     // 4. Run all 5 live signal engines in parallel
     const [technical, sentiment, onchain, news] = await Promise.all([
@@ -710,21 +745,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 5. Signal Fusion & Regime Classification
     const regime = fuseSignals(signals);
 
-    // 6. Check open positions against live BTC price (SL/TP/Timeout)
+    // 6. Check open positions against live BTC price (SL/TP/Timeout) - live_simulated only
     const { updatedTrades: afterClose, closedTrades } = checkAndClosePositions(storedTrades, currentPrice);
 
     // 7. Strategy Evaluation & Simulated Order Execution
-    const currentPortfolioValue = existingState?.portfolioValue || 11240;
+    // Live portfolio sizing is strictly derived from live_simulated positions
+    const livePerfForSizing = computeDetailedPerformance(afterClose, currentPrice, 'live_simulated');
+    const livePortfolioValue = livePerfForSizing.portfolioValue; // $10,000 if 0 live trades
+
     const { updatedTrades: finalTrades, newTrade } = evaluateAndExecute(
       afterClose,
       regime,
       currentPrice,
-      currentPortfolioValue,
+      livePortfolioValue,
       nextCycleCount
     );
 
-    // 8. Reconcile performance metrics
-    const perf = computeDetailedPerformance(finalTrades, currentPrice);
+    // 8. Reconcile performance metrics: strictly live_simulated for agent state
+    const livePerf = computeDetailedPerformance(finalTrades, currentPrice, 'live_simulated');
 
     // 9. Update regime history in Turso
     const storedRegimeHistory = (await kvGet('regimeHistory')) || [];
@@ -739,16 +777,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       cycleCount: nextCycleCount,
       lastCycleAt: now,
       lastPrice: currentPrice,
-      portfolioValue: perf.portfolioValue,
+      portfolioValue: livePerf.portfolioValue,
       initialPortfolioValue: 10000,
-      totalPnl: perf.totalPnl,
-      totalPnlPct: perf.totalPnlPct,
-      currentDrawdown: perf.currentDrawdown,
-      maxDrawdown: perf.maxDrawdown,
-      winRate: perf.winRate,
+      totalPnl: livePerf.totalPnl,
+      totalPnlPct: livePerf.totalPnlPct,
+      currentDrawdown: livePerf.currentDrawdown,
+      maxDrawdown: livePerf.maxDrawdown,
+      winRate: livePerf.winRate,
       currentRegime: regime,
-      openTradesCount: perf.openTradesCount,
-      startedAt: existingState?.startedAt || now - 14 * 24 * 60 * 60 * 1000,
+      openTradesCount: livePerf.openTradesCount,
+      startedAt: existingState?.startedAt || now,
     };
 
     // Commit state changes to Turso in parallel
@@ -768,7 +806,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       signalsEvaluated: signals.length,
       positionsClosed: closedTrades.length,
       newTradeCreated: !!newTrade,
-      portfolioValue: perf.portfolioValue,
+      portfolioValue: livePerf.portfolioValue,
       timestamp: now,
     });
   } catch (err: any) {

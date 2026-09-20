@@ -29,10 +29,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const isStats = req.url?.includes('/stats') || req.query.sub === 'stats';
     if (isStats) {
-      const stats = computeTradeStats(trades);
+      const sourceFilter = req.query.source as string | undefined;
+      const targetTrades = sourceFilter
+        ? trades.filter((t) => t.source === sourceFilter)
+        : trades;
+      const stats = computeTradeStats(targetTrades);
       return res.status(200).json({
         success: true,
         data: stats,
+        source: sourceFilter || 'all',
         timestamp: Date.now(),
       });
     }
@@ -40,8 +45,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const limitParam = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
     const isOpenSub = req.url?.includes('/open') || req.query.sub === 'open';
     const statusParam = isOpenSub ? 'open' : (req.query.status as string | undefined);
+    const sourceParam = req.query.source as string | undefined;
 
     let filtered = trades;
+    if (sourceParam) {
+      filtered = filtered.filter((t) => t.source === sourceParam);
+    }
+
     if (statusParam) {
       filtered = filtered.filter((t) => t.status === statusParam);
     }

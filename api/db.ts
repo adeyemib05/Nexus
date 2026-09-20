@@ -645,9 +645,17 @@ export function computeTradeStats(trades: Trade[]): TradeStatsResponse {
 
 const INITIAL_CAPITAL = 10000;
 
-export function computePerformance(trades: Trade[], currentPrice: number): PerformanceSnapshot {
-  const closed = trades.filter((t) => t.status === 'closed');
-  const open = trades.filter((t) => t.status === 'open');
+export function computePerformance(
+  trades: Trade[],
+  currentPrice: number,
+  sourceFilter: 'live_simulated' | 'seed_historical' | 'all' = 'live_simulated'
+): PerformanceSnapshot {
+  const filtered = sourceFilter === 'all'
+    ? trades
+    : trades.filter((t) => t.source === sourceFilter);
+
+  const closed = filtered.filter((t) => t.status === 'closed');
+  const open = filtered.filter((t) => t.status === 'open');
 
   const realizedPnl = closed.reduce((s, t) => s + (t.pnl || 0), 0);
   const unrealizedPnl = open.reduce((s, t) => {
@@ -689,15 +697,23 @@ export function computePerformance(trades: Trade[], currentPrice: number): Perfo
     winRate: parseFloat(winRate.toFixed(4)),
     maxDrawdown: parseFloat(maxDrawdown.toFixed(4)),
     currentDrawdown: parseFloat(currentDrawdown.toFixed(4)),
-    totalTrades: trades.length,
+    totalTrades: filtered.length,
     openTrades: open.length,
   };
 }
 
-export function computeDetailedPerformance(trades: Trade[], currentPrice: number): DetailedPerformance {
-  const perf = computePerformance(trades, currentPrice);
-  const closed = trades.filter((t) => t.status === 'closed');
-  const open = trades.filter((t) => t.status === 'open');
+export function computeDetailedPerformance(
+  trades: Trade[],
+  currentPrice: number,
+  sourceFilter: 'live_simulated' | 'seed_historical' | 'all' = 'live_simulated'
+): DetailedPerformance {
+  const perf = computePerformance(trades, currentPrice, sourceFilter);
+  const filtered = sourceFilter === 'all'
+    ? trades
+    : trades.filter((t) => t.source === sourceFilter);
+
+  const closed = filtered.filter((t) => t.status === 'closed');
+  const open = filtered.filter((t) => t.status === 'open');
   const winning = closed.filter((t) => (t.pnl || 0) > 0);
   const losing = closed.filter((t) => (t.pnl || 0) < 0);
   const grossWinUSD = winning.reduce((sum, t) => sum + (t.pnl || 0), 0);
