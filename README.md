@@ -1,62 +1,83 @@
 # NEXUS — Adaptive Multi-Signal Trading Intelligence
 
-**Built for Bitget AI Base Camp Hackathon S1 (Track 1 — Trading Agent)**
+**Built for Bitget Hackathon S2 (Track 2 — Agentic Trading / Trading Agent)**
 
-NEXUS is an autonomous trading agent that fuses five independent market signals — macro, sentiment, on-chain, news, and technical — into a single regime classification, routes that classification to a matching strategy, manages risk automatically, and explains every decision it makes in plain English.
+NEXUS is an autonomous trading agent where Alibaba Cloud Qwen 3.8 Max serves as the primary trading decision-maker, supported by real-time multi-signal market perception (macro, sentiment, on-chain, news, and technical) and governed by strict deterministic risk guardrails.
 
 🔗 **Live Demo:** https://nexus-orcin-eight.vercel.app
-🔗 **Live Backend / API:** https://nexus-production-4013.up.railway.app/api/health
+🔗 **Live API Health:** https://nexus-orcin-eight.vercel.app/api/health
+🔗 **Live Autonomous Agent Cycle:** https://nexus-orcin-eight.vercel.app/api/agent/cycle
 
 ---
 
 ## What NEXUS Actually Does
 
-Every 60 seconds, NEXUS runs a complete perception → decision → execution → risk loop:
+Every 60 seconds, NEXUS runs an autonomous perception → fusion → LLM decision → safety guardrail → simulated execution loop:
 
-1. **Perceives** — pulls a live BTCUSDT price and 5-minute candles from Bitget, plus macro, sentiment, on-chain, and news readings from Bitget Agent Hub's market-data MCP server
-2. **Fuses** — combines all 5 signals into one confidence-weighted score and classifies the market as `bullish_trend`, `bearish_trend`, `ranging`, or `uncertain`
-3. **Decides** — routes the regime to a matching strategy: momentum (long *or* short), mean-reversion, or capital protection
-4. **Manages risk** — checks position size limits, daily trade limits, drawdown circuit-breakers, and a news-volatility guard before allowing any trade
-5. **Executes** — opens/closes simulated positions with trailing stops on trending trades and realistic trading fees deducted from every result
-6. **Explains** — asks Qwen (via the hackathon's sponsored endpoint) to translate the decision into a short, plain-English explanation anyone can read, with a template-based fallback if the API is unavailable
+1. **Perceives** — Ingests live BTCUSDT spot ticker and 1-hour candles directly from Bitget, plus derivatives funding rates, Alternative.me Fear & Greed, Mempool recommended transaction fees, DefiLlama TVL momentum, and CryptoCompare institutional news flow.
+2. **Fuses** — Synthesizes all 5 signals into confidence-weighted telemetry and classifies the market into a reference regime (`bullish_trend`, `bearish_trend`, `ranging`, `uncertain`) as input evidence.
+3. **Decides (Qwen Autonomous Decision-Maker)** — Supplies structured market context and signal evidence to **Qwen 3.8 Max** (with Groq `qwen3-32b` secondary failover). Qwen possesses sole decision authority to issue an autonomous `BUY`, `SELL`, or `HOLD` verdict, select the strategy, and provide a concise decision rationale.
+4. **Governs (Deterministic Safety Guardrails)** — Before any order is placed, deterministic code validates market price integrity, single-position constraints, a 15-minute directional re-entry cooldown, and calculates position sizing (1–2%), Stop Loss (2.5%), and Take Profit (6.0%).
+5. **Executes & Persists** — Executes simulated paper trades with exchange fee deduction (0.1%), commits the trade and full AI decision log to a Turso Cloud SQLite ledger, and updates portfolio accounting.
 
-No real capital is used anywhere — this runs entirely in simulation mode, as permitted by the hackathon rules.
+No real capital is risked — the system operates strictly in simulated paper-trading mode on live Bitget market data, per hackathon guidelines.
 
 ---
 
-## Bitget Tools Used
+## Bitget & Sponsor Tools Used
 
 | Tool | How it's used |
 |---|---|
-| **Bitget REST API** | Live price ticker, historical/live candles, simulated order logging |
-| **Bitget WebSocket API** | Real-time price stream |
-| **Bitget Agent Hub — Skill Hub** | All 4 non-technical signals (macro, sentiment, on-chain, news) via Agent Hub's official market-data MCP server (`datahub.noxiaohao.com` — confirmed in Bitget's own `agent_hub` repo as the Skill Hub's required backing server) |
-| **Qwen (via `hackathon.bitgetops.com`)** | Primary natural-language trade explainer, using the hackathon's sponsored Qwen proxy |
-
-Technical analysis (RSI, MACD, Bollinger Bands, EMA, ADX) is computed locally from real Bitget candle data rather than through Agent Hub's `technical_analysis` MCP tool, since the two are computationally equivalent and keeping it local avoids an extra network round-trip every cycle.
+| **Bitget Spot REST API** | Live BTCUSDT ticker, real-time hourly candles, 24h volume telemetry |
+| **Bitget Derivatives REST API** | BTC perpetual futures funding rates for derivatives sentiment |
+| **Qwen 3.8 Max (`hackathon.bitgetops.com`)** | **Primary Autonomous Trading Decision-Maker**: Evaluates multi-signal market evidence and issues `BUY`, `SELL`, or `HOLD` commands with confidence and concise rationale |
+| **Groq LPU Engine** | Secondary high-speed failover provider for Qwen (`qwen/qwen3-32b`) |
+| **Turso Cloud SQLite** | Production serverless persistence for simulated trade ledger, regime history, and agent state |
 
 ---
 
-## Architecture
+## Architecture: Decision-Maker vs. Safety Guardrail
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌────────────────┐     ┌──────────────┐
-│  5 Signals  │ ──▶ │ Regime Fusion │ ──▶ │ Strategy Router │ ──▶ │ Risk Manager │
-│ (Agent Hub  │     │  (confidence- │     │  (long/short/   │     │ (size caps,  │
-│  + local TA)│     │  weighted)    │     │  mean-reversion/│     │  drawdown,   │
-└─────────────┘     └──────────────┘     │  capital protect)│     │  daily limit)│
-                                          └────────────────┘     └──────┬───────┘
-                                                                         ▼
-                                          ┌──────────────┐     ┌──────────────────┐
-                                          │  NL Explainer │ ◀── │ Execution Engine │
-                                          │ (Qwen→Gemini  │     │ (trailing stops, │
-                                          │  →template)   │     │  fees, PnL)      │
-                                          └──────────────┘     └──────────────────┘
+┌──────────────────┐     ┌──────────────────────┐     ┌──────────────────────┐
+│  5 Market Signals│ ──▶ │ Multi-Signal Fusion  │ ──▶ │  QWEN 3.8 MAX LLM    │
+│  (Technical,     │     │ & Regime Context     │     │  TRADING DECISION    │
+│   Sentiment,     │     │ (Input Evidence)     │     │ (Autonomous BUY/     │
+│   On-Chain,      │     └──────────────────────┘     │  SELL/HOLD + Rationale│
+│   Macro, News)   │                                  └──────────┬───────────┘
+└──────────────────┘                                             ▼
+                                                      ┌──────────────────────┐
+                                                      │ DETERMINISTIC SAFETY │
+                                                      │ GUARDRAIL LAYER      │
+                                                      │ (1-2% sizing, 2.5% SL│
+                                                      │  6% TP, 15m cooldown,│
+                                                      │  fail-closed gates)  │
+                                                      └──────────┬───────────┘
+                                                                 ▼
+                                                      ┌──────────────────────┐
+                                                      │ SIMULATED EXECUTION  │
+                                                      │ & TURSO CLOUD LEDGER │
+                                                      └──────────────────────┘
 ```
 
-**Backend:** Node.js, TypeScript, Express, SQLite (via `sql.js`), Server-Sent Events for live updates
-**Frontend:** React, TypeScript, Vite, Tailwind, Zustand, Recharts, Framer Motion
-**Deployment:** Backend on Railway, frontend on Vercel
+### Separation of Concerns
+
+* **Qwen (The Decision Authority)**:
+  * Analyzes comprehensive market context and conflicting indicators.
+  * Autonomously decides `BUY`, `SELL`, or `HOLD`.
+  * Selects the strategy (`momentum_long`, `defensive_short`, `mean_reversion`, `capital_protection`).
+  * Formulates a concise decision rationale for transparent auditing.
+
+* **Deterministic Code (The Safety Guardrail)**:
+  * Sizing calculation strictly capped at 1.0%–2.0% of live portfolio value.
+  * Non-negotiable risk brackets: 2.5% Stop Loss, 6.0% Take Profit, 48-hour timeout.
+  * Maximum 1 live long and 1 live short position simultaneously.
+  * 15-minute re-entry cooldown prevents over-trading.
+  * Fail-closed price checks: cycle halts if market data is invalid or missing.
+  * Fail-safe `HOLD`: any LLM timeout (>3.5s), parse error, or provider outage defaults strictly to `HOLD` (never falls back to unguided algorithmic buying).
+  * Strict ledger provenance: historical seed trades are immutable; all newly executed positions carry `source: "live_simulated"`.
+
+**Stack:** Node.js, TypeScript, Vercel Serverless Functions, Turso Cloud SQLite, React, Tailwind, Zustand.
 
 ---
 
@@ -158,18 +179,16 @@ frontend/src/
 
 ---
 
-## Known Limitations & Honest Future Work
+## Honest Disclosures & Scope
 
-We'd rather disclose these than have them discovered:
-
-- **Decision logic is rule-based, not model-driven.** Qwen explains decisions in plain English; it doesn't currently make them. A clear next step is giving the LLM actual influence over entry confirmation or position sizing, not just narration.
-- **Settings page sliders are a configuration preview, not live controls** — changing them doesn't reconfigure the running agent. Wiring this up safely (most config is read once at startup) is a defined next step.
-- **Trailing stops apply to trend trades only** — mean-reversion and short positions use fixed stop-loss/take-profit; extending trailing logic symmetrically to all strategies is straightforward future work.
-- **Single symbol, single open position at a time** by design, to keep risk contained within the contest window.
-- **No real capital, ever** — this is a simulation-mode agent, per the hackathon's accepted submission format.
+- **LLM Decision Authority with Deterministic Guardrails:** Alibaba Cloud Qwen 3.8 Max acts as the primary trading decision-maker with sole authority over `BUY`, `SELL`, and `HOLD` actions based on real-time multi-signal evidence. Deterministic code acts as an unbreachable safety guardrail enforcing sizing limits (1–2%), stop-loss (-2.5%), take-profit (+6%), directional cooldowns, and fail-safe holds.
+- **Simulation Mode Only (No Real Capital):** The platform operates strictly in paper-trading simulation mode on live Bitget spot market data. No live exchange orders or real capital are deployed, adhering to hackathon submission requirements.
+- **Single Symbol Risk Scope:** Operating exclusively on `BTCUSDT` spot pairs with a maximum of one open long and one open short position to maintain strict risk containment.
+- **Settings Page Preview:** The frontend settings sliders currently act as an interactive configuration preview; dynamic runtime parameter reconfiguration is planned for post-hackathon deployment.
 
 ---
 
-## License
+## License & Attribution
 
-Built solo for Bitget AI Base Camp Hackathon S1, June 2026.
+Developed for Bitget Hackathon S2 — Track 2: Agentic Trading / Trading Agent.
+All code and architecture are publicly auditable and reproducible.

@@ -10,6 +10,7 @@ import {
   type SignalType,
   type SignalStrength,
   type MarketRegime,
+  type StrategyType,
 } from '../db';
 
 // ── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
@@ -576,19 +577,232 @@ function checkAndClosePositions(trades: Trade[], currentPrice: number): { update
   return { updatedTrades, closedTrades };
 }
 
-function evaluateAndExecute(
+// ── 8B. QWEN AUTONOMOUS TRADING DECISION LAYER (TRACK 2) ─────────────────────
+
+export type AiAction = 'BUY' | 'SELL' | 'HOLD';
+
+export interface AiTradingDecision {
+  action: AiAction;
+  confidence: number;
+  strategy: 'momentum_long' | 'momentum_short' | 'defensive_short' | 'mean_reversion' | 'capital_protection';
+  reasoning: string;
+}
+
+export interface AiDecisionResult extends AiTradingDecision {
+  provider: 'qwen-3.8-max' | 'groq-qwen-32b' | 'fallback_hold';
+  failed?: boolean;
+  failureReason?: string;
+}
+
+export interface AiDecisionContext {
+  symbol: string;
+  currentPrice: number;
+  technical: SignalReading;
+  sentiment: SignalReading;
+  onchain: SignalReading;
+  macro: SignalReading;
+  news: SignalReading;
+  regime: RegimeReading;
+  openLiveTrades: Trade[];
+  recentClosedLiveLong: boolean;
+  recentClosedLiveShort: boolean;
+}
+
+export function parseAndValidateDecision(raw: string): AiTradingDecision | null {
+  try {
+    const cleaned = raw.replace(/```json\n?|```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+
+    const action = String(parsed.action || '').toUpperCase().trim();
+    if (action !== 'BUY' && action !== 'SELL' && action !== 'HOLD') {
+      return null;
+    }
+
+    let confidence = Number(parsed.confidence);
+    if (isNaN(confidence) || confidence < 0 || confidence > 100) {
+      return null;
+    }
+
+    const rawStrategy = String(parsed.strategy || '').toLowerCase().trim();
+    let strategy: 'momentum_long' | 'momentum_short' | 'defensive_short' | 'mean_reversion' | 'capital_protection';
+    if (action === 'BUY') {
+      strategy = 'momentum_long';
+    } else if (action === 'SELL') {
+      strategy = rawStrategy === 'defensive_short' ? 'defensive_short' : 'momentum_short';
+    } else {
+      strategy = rawStrategy === 'mean_reversion' ? 'mean_reversion' : 'capital_protection';
+    }
+
+    const reasoning = String(parsed.reasoning || '').trim().slice(0, 300) || `${action} selected by AI model.`;
+
+    return {
+      action: action as AiAction,
+      confidence: Math.round(confidence),
+      strategy,
+      reasoning,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildAiPrompts(ctx: AiDecisionContext): { systemPrompt: string; userPrompt: string } {
+  const systemPrompt = `You are the Senior Quantitative Trading Decision-Maker for NEXUS, an autonomous algorithmic trading agent operating on Bitget BTCUSDT spot.
+You possess sole decision-making authority over the trading action: BUY, SELL, or HOLD.
+The deterministic multi-signal fusion, regime classification, technical indicators, on-chain metrics, macro liquidity, sentiment, and news are provided to you as INPUT EVIDENCE, not commands.
+Do NOT assume the deterministic regime is correct. Critically evaluate conflicting indicators.
+Consider active live positions and cooldown states.
+Prefer HOLD when evidence is conflicting, market conviction is weak, or risk-reward is unfavorable.
+Never invent data. Keep reasoning concise (1-2 sentences). Do not include chain-of-thought.
+
+Respond ONLY with a valid JSON object matching this exact schema:
+{
+  "action": "BUY" | "SELL" | "HOLD",
+  "confidence": <integer from 0 to 100>,
+  "strategy": "momentum_long" | "defensive_short" | "mean_reversion" | "capital_protection",
+  "reasoning": "<concise 1-2 sentence decision rationale>"
+}`;
+
+  const userPrompt = `Market & Signal Evidence:
+- Symbol: ${ctx.symbol}
+- Market Price: $${ctx.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+- Technical: score=${ctx.technical.score}, strength=${ctx.technical.strength}, conf=${Math.round(ctx.technical.confidence * 100)}%, RSI=${ctx.technical.details?.rsi ?? 'N/A'}, EMA20=${ctx.technical.details?.ema20 ?? 'N/A'}, EMA50=${ctx.technical.details?.ema50 ?? 'N/A'}
+- Sentiment: score=${ctx.sentiment.score}, strength=${ctx.sentiment.strength}, conf=${Math.round(ctx.sentiment.confidence * 100)}%, FearGreed=${ctx.sentiment.details?.fearGreedIndex ?? 'N/A'}, FundingRate=${ctx.sentiment.details?.fundingRate ?? 'N/A'}
+- On-Chain: score=${ctx.onchain.score}, strength=${ctx.onchain.strength}, conf=${Math.round(ctx.onchain.confidence * 100)}%, Fee=${ctx.onchain.details?.networkFeeRate ?? 'N/A'}, TVL24h=${ctx.onchain.details?.tvlMomentum24h ?? 'N/A'}
+- Macro: score=${ctx.macro.score}, strength=${ctx.macro.strength}, conf=${Math.round(ctx.macro.confidence * 100)}%, Liquidity=${ctx.macro.details?.liquidityExpansion ?? 'N/A'}, Env=${ctx.macro.details?.macroEnvironment ?? 'N/A'}
+- News: score=${ctx.news.score}, strength=${ctx.news.strength}, conf=${Math.round(ctx.news.confidence * 100)}%, Available=${ctx.news.available}
+- Fused Score: ${ctx.regime.fusedScore >= 0 ? '+' : ''}${ctx.regime.fusedScore.toFixed(3)}
+- Fused Confidence: ${ctx.regime.confidence}%
+- Regime: ${ctx.regime.regime}
+- Active Live Positions: ${ctx.openLiveTrades.length === 0 ? 'None (Flat)' : ctx.openLiveTrades.map((t) => `${t.side.toUpperCase()} @ $${t.entryPrice}`).join(', ')}
+- Cooldown Active: Long Cooldown=${ctx.recentClosedLiveLong}, Short Cooldown=${ctx.recentClosedLiveShort}
+
+Decide BUY, SELL, or HOLD. Return valid JSON only.`;
+
+  return { systemPrompt, userPrompt };
+}
+
+export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<AiDecisionResult> {
+  const fallbackHold = (reason: string): AiDecisionResult => ({
+    action: 'HOLD',
+    confidence: 50,
+    strategy: 'capital_protection',
+    reasoning: `Safe hold enforced: ${reason}`,
+    provider: 'fallback_hold',
+    failed: true,
+    failureReason: reason,
+  });
+
+  const { systemPrompt, userPrompt } = buildAiPrompts(ctx);
+
+  const qwenKey = process.env.QWEN_API_KEY;
+  const qwenBase = process.env.QWEN_BASE_URL || 'https://hackathon.bitgetops.com/v1';
+  const qwenModel = process.env.QWEN_MODEL || 'qwen3.8-max';
+
+  // 1. Primary: Alibaba Cloud Qwen 3.8 Max (Bitget Hackathon Sponsor)
+  if (qwenKey && !qwenKey.includes('YOUR')) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+      const qwenRes = await fetch(`${qwenBase}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${qwenKey}`,
+        },
+        body: JSON.stringify({
+          model: qwenModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.1,
+          max_tokens: 250,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (qwenRes.ok) {
+        const data = await qwenRes.json();
+        const rawContent = data?.choices?.[0]?.message?.content || '{}';
+        const parsed = parseAndValidateDecision(rawContent);
+        if (parsed) {
+          return { ...parsed, provider: 'qwen-3.8-max' };
+        } else {
+          console.warn('[requestAiTradingDecision] Qwen response failed schema validation:', rawContent);
+        }
+      } else {
+        console.warn(`[requestAiTradingDecision] Qwen returned HTTP ${qwenRes.status}`);
+      }
+    } catch (err: any) {
+      console.warn('[requestAiTradingDecision] Qwen fetch/parse failed:', err.message);
+    }
+  }
+
+  // 2. Secondary: Groq LPU Engine
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey && !groqKey.includes('YOUR')) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${groqKey}`,
+        },
+        body: JSON.stringify({
+          model: 'qwen/qwen3-32b',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.1,
+          max_tokens: 250,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (groqRes.ok) {
+        const data = await groqRes.json();
+        const rawContent = data?.choices?.[0]?.message?.content || '{}';
+        const parsed = parseAndValidateDecision(rawContent);
+        if (parsed) {
+          return { ...parsed, provider: 'groq-qwen-32b' };
+        } else {
+          console.warn('[requestAiTradingDecision] Groq response failed schema validation:', rawContent);
+        }
+      } else {
+        console.warn(`[requestAiTradingDecision] Groq returned HTTP ${groqRes.status}`);
+      }
+    } catch (err: any) {
+      console.warn('[requestAiTradingDecision] Groq fetch/parse failed:', err.message);
+    }
+  }
+
+  // 3. Fail-Safe: HOLD (Never fall back to deterministic BUY/SELL)
+  return fallbackHold('AI reasoning service unavailable or returned invalid contract. Operating in fail-safe capital protection mode.');
+}
+
+export function evaluateAndExecuteWithGuardrails(
   trades: Trade[],
+  aiDecision: AiDecisionResult,
   regime: RegimeReading,
   currentPrice: number,
   portfolioValue: number,
   cycleCount: number
-): { updatedTrades: Trade[]; newTrade: Trade | null } {
+): { updatedTrades: Trade[]; newTrade: Trade | null; blockReason: string | null } {
   // Only inspect live_simulated open positions. Historical seed trades must never block live entries.
   const openLiveTrades = trades.filter((t) => t.status === 'open' && t.source === 'live_simulated');
   const hasOpenLong = openLiveTrades.some((t) => t.side === 'long');
   const hasOpenShort = openLiveTrades.some((t) => t.side === 'short');
 
   let newTrade: Trade | null = null;
+  let blockReason: string | null = null;
   const now = Date.now();
 
   // 15-Minute Re-Entry Cooldown for live_simulated trading (derived from persisted trades)
@@ -610,60 +824,87 @@ function evaluateAndExecute(
       now - t.closedAt < COOLDOWN_MS
   );
 
+  // Deterministic Risk Controls: Sizing derived from AI confidence & safe bounds
   let sizePct = 0.015;
-  if (regime.confidence >= 80) sizePct = 0.02;
-  else if (regime.confidence < 60) sizePct = 0.010;
+  if (aiDecision.confidence >= 80) sizePct = 0.02;
+  else if (aiDecision.confidence < 60) sizePct = 0.010;
 
   const positionSizeUSD = Math.round(portfolioValue * sizePct);
 
-  if (regime.regime === 'bullish_trend' && !hasOpenLong && !recentClosedLiveLong) {
-    const sl = parseFloat((currentPrice * (1 - 0.025)).toFixed(2));
-    const tp = parseFloat((currentPrice * (1 + 0.060)).toFixed(2));
+  if (aiDecision.action === 'BUY') {
+    if (hasOpenLong) {
+      blockReason = 'Execution blocked: Live long position already open';
+    } else if (recentClosedLiveLong) {
+      blockReason = 'Execution blocked: 15-minute re-entry cooldown active for long';
+    } else if (currentPrice <= 0) {
+      blockReason = 'Execution blocked: Invalid market price';
+    } else if (portfolioValue <= 0) {
+      blockReason = 'Execution blocked: Insufficient portfolio capital';
+    } else {
+      const sl = parseFloat((currentPrice * (1 - 0.025)).toFixed(2));
+      const tp = parseFloat((currentPrice * (1 + 0.060)).toFixed(2));
 
-    newTrade = {
-      id: `tr-sim-${Date.now().toString(36)}`,
-      symbol: 'BTCUSDT',
-      side: 'long',
-      strategy: 'momentum_long',
-      entryPrice: currentPrice,
-      positionSizePct: sizePct,
-      positionSizeUSD,
-      stopLoss: sl,
-      takeProfit: tp,
-      status: 'open',
-      openedAt: now,
-      explanation: `Live cycle execution: Fused score +${regime.fusedScore.toFixed(3)} with ${regime.confidence}% conviction. Entering momentum long.`,
-      regimeAtEntry: 'bullish_trend',
-      regimeConfidence: regime.confidence,
-      source: 'live_simulated',
-      cycleId: cycleCount,
-    };
-  } else if (regime.regime === 'bearish_trend' && !hasOpenShort && !recentClosedLiveShort) {
-    const sl = parseFloat((currentPrice * (1 + 0.025)).toFixed(2));
-    const tp = parseFloat((currentPrice * (1 - 0.060)).toFixed(2));
+      newTrade = {
+        id: `tr-sim-${Date.now().toString(36)}`,
+        symbol: 'BTCUSDT',
+        side: 'long',
+        strategy: 'momentum_long',
+        entryPrice: currentPrice,
+        positionSizePct: sizePct,
+        positionSizeUSD,
+        stopLoss: sl,
+        takeProfit: tp,
+        status: 'open',
+        openedAt: now,
+        explanation: `Qwen Decision (${aiDecision.confidence}% conf, ${aiDecision.provider}): ${aiDecision.reasoning}`,
+        regimeAtEntry: regime.regime,
+        regimeConfidence: regime.confidence,
+        fusedScoreAtEntry: regime.fusedScore,
+        source: 'live_simulated',
+        cycleId: cycleCount,
+      };
+    }
+  } else if (aiDecision.action === 'SELL') {
+    if (hasOpenShort) {
+      blockReason = 'Execution blocked: Live short position already open';
+    } else if (recentClosedLiveShort) {
+      blockReason = 'Execution blocked: 15-minute re-entry cooldown active for short';
+    } else if (currentPrice <= 0) {
+      blockReason = 'Execution blocked: Invalid market price';
+    } else if (portfolioValue <= 0) {
+      blockReason = 'Execution blocked: Insufficient portfolio capital';
+    } else {
+      const sl = parseFloat((currentPrice * (1 + 0.025)).toFixed(2));
+      const tp = parseFloat((currentPrice * (1 - 0.060)).toFixed(2));
 
-    newTrade = {
-      id: `tr-sim-${Date.now().toString(36)}`,
-      symbol: 'BTCUSDT',
-      side: 'short',
-      strategy: 'momentum_short',
-      entryPrice: currentPrice,
-      positionSizePct: sizePct,
-      positionSizeUSD,
-      stopLoss: sl,
-      takeProfit: tp,
-      status: 'open',
-      openedAt: now,
-      explanation: `Live cycle execution: Fused score ${regime.fusedScore.toFixed(3)} indicates trend reversal. Entering defensive short.`,
-      regimeAtEntry: 'bearish_trend',
-      regimeConfidence: regime.confidence,
-      source: 'live_simulated',
-      cycleId: cycleCount,
-    };
+      newTrade = {
+        id: `tr-sim-${Date.now().toString(36)}`,
+        symbol: 'BTCUSDT',
+        side: 'short',
+        strategy: 'momentum_short',
+        entryPrice: currentPrice,
+        positionSizePct: sizePct,
+        positionSizeUSD,
+        stopLoss: sl,
+        takeProfit: tp,
+        status: 'open',
+        openedAt: now,
+        explanation: `Qwen Decision (${aiDecision.confidence}% conf, ${aiDecision.provider}): ${aiDecision.reasoning}`,
+        regimeAtEntry: regime.regime,
+        regimeConfidence: regime.confidence,
+        fusedScoreAtEntry: regime.fusedScore,
+        source: 'live_simulated',
+        cycleId: cycleCount,
+      };
+    }
+  } else {
+    blockReason = aiDecision.failed
+      ? `Fail-safe hold: ${aiDecision.failureReason}`
+      : `Autonomous HOLD: ${aiDecision.reasoning}`;
   }
 
   const updatedTrades = newTrade ? [newTrade, ...trades] : trades;
-  return { updatedTrades, newTrade };
+  return { updatedTrades, newTrade, blockReason };
 }
 
 // ── 9. CYCLE HANDLER ─────────────────────────────────────────────────────────
@@ -748,30 +989,82 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 6. Check open positions against live BTC price (SL/TP/Timeout) - live_simulated only
     const { updatedTrades: afterClose, closedTrades } = checkAndClosePositions(storedTrades, currentPrice);
 
-    // 7. Strategy Evaluation & Simulated Order Execution
-    // Live portfolio sizing is strictly derived from live_simulated positions
+    // 7. Assemble Market Context & Request Autonomous AI Decision (Qwen 3.8 Max)
+    const openLiveTrades = afterClose.filter((t) => t.status === 'open' && t.source === 'live_simulated');
+    const COOLDOWN_MS = 15 * 60 * 1000;
+    const recentClosedLiveLong = afterClose.some(
+      (t) =>
+        t.source === 'live_simulated' &&
+        t.status === 'closed' &&
+        t.side === 'long' &&
+        t.closedAt &&
+        now - t.closedAt < COOLDOWN_MS
+    );
+    const recentClosedLiveShort = afterClose.some(
+      (t) =>
+        t.source === 'live_simulated' &&
+        t.status === 'closed' &&
+        t.side === 'short' &&
+        t.closedAt &&
+        now - t.closedAt < COOLDOWN_MS
+    );
+
+    const aiContext: AiDecisionContext = {
+      symbol: 'BTCUSDT',
+      currentPrice,
+      technical,
+      sentiment,
+      onchain,
+      macro,
+      news,
+      regime,
+      openLiveTrades,
+      recentClosedLiveLong,
+      recentClosedLiveShort,
+    };
+
+    const aiDecision = await requestAiTradingDecision(aiContext);
+
+    // 8. Deterministic Safety Guardrails & Simulated Order Execution
     const livePerfForSizing = computeDetailedPerformance(afterClose, currentPrice, 'live_simulated');
     const livePortfolioValue = livePerfForSizing.portfolioValue; // $10,000 if 0 live trades
 
-    const { updatedTrades: finalTrades, newTrade } = evaluateAndExecute(
+    const { updatedTrades: finalTrades, newTrade, blockReason } = evaluateAndExecuteWithGuardrails(
       afterClose,
+      aiDecision,
       regime,
       currentPrice,
       livePortfolioValue,
       nextCycleCount
     );
 
-    // 8. Reconcile performance metrics: strictly live_simulated for agent state
+    // 9. Reconcile performance metrics: strictly live_simulated for agent state
     const livePerf = computeDetailedPerformance(finalTrades, currentPrice, 'live_simulated');
 
-    // 9. Update regime history in Turso
+    // 10. Update regime history in Turso
     const storedRegimeHistory = (await kvGet('regimeHistory')) || [];
     const updatedRegimeHistory = [
       regime,
       ...storedRegimeHistory.filter((r: any) => r.timestamp !== regime.timestamp).slice(0, 49),
     ];
 
-    // 10. Assemble and persist updated AgentState
+    // 11. Assemble and persist updated AgentState with full AI decision auditability
+    const lastAiDecisionLog = {
+      timestamp: now,
+      symbol: 'BTCUSDT',
+      marketPrice: currentPrice,
+      action: aiDecision.action,
+      confidence: aiDecision.confidence,
+      strategy: aiDecision.strategy,
+      reasoning: aiDecision.reasoning,
+      provider: aiDecision.provider,
+      fusedScore: regime.fusedScore,
+      regime: regime.regime,
+      executed: !!newTrade,
+      blockReason: blockReason,
+      tradeId: newTrade?.id || null,
+    };
+
     const newState = {
       status: 'running',
       cycleCount: nextCycleCount,
@@ -787,6 +1080,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       currentRegime: regime,
       openTradesCount: livePerf.openTradesCount,
       startedAt: existingState?.startedAt || now,
+      lastAiDecision: lastAiDecisionLog,
     };
 
     // Commit state changes to Turso in parallel
@@ -805,6 +1099,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fusedScore: regime.fusedScore,
       signalsEvaluated: signals.length,
       positionsClosed: closedTrades.length,
+      aiDecision: lastAiDecisionLog,
       newTradeCreated: !!newTrade,
       portfolioValue: livePerf.portfolioValue,
       timestamp: now,

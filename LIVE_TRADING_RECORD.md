@@ -1,18 +1,19 @@
-# NEXUS — Live Trading Record
+# NEXUS — Live Trading Record & Paper Trading Audit
 
-**Source:** `/api/trades`
-
-**Environment:** Paper Trading
-
-**Exchange:** Bitget
-
-**Trading Pair:** BTCUSDT
-
-**Execution Engine:** NEXUS AI Trading Agent
+**Live Ledger API:** `/api/trades`  
+**Environment:** Paper Trading (Live Bitget Market Data)  
+**Exchange:** Bitget Spot  
+**Trading Pair:** BTCUSDT  
+**Primary Decision Engine:** Alibaba Cloud Qwen 3.8 Max (`hackathon.bitgetops.com`)  
+**Safety & Execution Guardrails:** Deterministic Risk Architecture (1–2% sizing, 2.5% SL, 6% TP, 15m cooldown)  
 
 ---
 
-> Every trade below was generated autonomously by NEXUS. Before execution, the system evaluates market regime, technical structure, sentiment conditions, and confidence scores before selecting a strategy and calculating risk parameters.
+> **Audit Notice & Provenance Transparency:**
+> 
+> * **Historical Benchmark Records:** The 7 closed trades listed below represent the initial paper-trading calibration dataset recorded during the S1 benchmarking phase. In the production database, these are immutably archived with `source: "seed_historical"` and are strictly isolated from the live portfolio accounting.
+> * **Live S2 Track 2 Execution:** All newly executed trades by the autonomous agent are tagged `source: "live_simulated"`. Before any position is opened, Qwen 3.8 Max independently decides `BUY`, `SELL`, or `HOLD` from real-time multi-signal evidence, and deterministic safety guardrails verify risk limits before writing to the Turso Cloud SQLite ledger.
+> * **No Fabricated Trades:** Zero synthetic trades are generated. If market conditions do not provide a favorable risk-reward setup, Qwen's autonomous decision is `HOLD`, preserving capital.
 
 ---
 
