@@ -131,6 +131,10 @@ export interface AiDecisionLog {
   strategy: string;
   reasoning: string;
   provider?: string;
+  providerAttempted?: string;
+  providerSuccess?: boolean;
+  providerFailureReason?: string | null;
+  latencyMs?: number | null;
   fusedScore?: number;
   regime?: MarketRegime;
   executed: boolean;

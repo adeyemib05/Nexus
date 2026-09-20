@@ -54,9 +54,15 @@ export default function Header() {
 
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1.5">
-          <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-nexus-bull animate-pulse' : 'bg-nexus-bear'}`} />
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              isConnected && Date.now() - lastUpdate < 15000
+                ? 'bg-nexus-bull animate-pulse'
+                : 'bg-nexus-bear'
+            }`}
+          />
           <span className="text-[10px] font-display tracking-widest uppercase text-nexus-textMuted">
-            {isConnected ? 'LIVE' : 'OFF'}
+            {isConnected && Date.now() - lastUpdate < 15000 ? 'LIVE' : 'OFF'}
           </span>
         </div>
         <span className="stat-label hidden md:block">Updated {relativeTime}</span>

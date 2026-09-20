@@ -24,15 +24,64 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     bitgetApiReachable = false;
   }
 
-  // 2. Check Qwen API configuration
+  // 2. Check Qwen API configuration & reachability
   const qwenKey = process.env.QWEN_API_KEY || '';
+  const qwenBase = process.env.QWEN_BASE_URL || 'https://hackathon.bitgetops.com/v1';
   const qwenConfigured = !!(qwenKey && !qwenKey.includes('YOUR') && qwenKey.length > 10);
+  let qwenState: 'configured' | 'healthy' | 'rate_limited' | 'unreachable' | 'not_configured' = qwenConfigured ? 'configured' : 'not_configured';
 
-  // 3. Check Gemini API configuration
+  if (qwenConfigured) {
+    try {
+      const probeSignal = typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function'
+        ? (AbortSignal as any).timeout(2500)
+        : undefined;
+      const qwenRes = await fetch(`${qwenBase}/models`, {
+        headers: { Authorization: `Bearer ${qwenKey}` },
+        signal: probeSignal,
+      });
+      if (qwenRes.ok) {
+        qwenState = 'healthy';
+      } else if (qwenRes.status === 429) {
+        qwenState = 'rate_limited';
+      } else {
+        qwenState = 'unreachable';
+      }
+    } catch {
+      qwenState = 'unreachable';
+    }
+  }
+
+  // 3. Check Groq API configuration & reachability
+  const groqKey = process.env.GROQ_API_KEY || '';
+  const groqConfigured = !!(groqKey && !groqKey.includes('YOUR') && groqKey.length > 10);
+  let groqState: 'configured' | 'healthy' | 'rate_limited' | 'unreachable' | 'not_configured' = groqConfigured ? 'configured' : 'not_configured';
+
+  if (groqConfigured) {
+    try {
+      const probeSignal = typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function'
+        ? (AbortSignal as any).timeout(2000)
+        : undefined;
+      const groqRes = await fetch('https://api.groq.com/openai/v1/models', {
+        headers: { Authorization: `Bearer ${groqKey}` },
+        signal: probeSignal,
+      });
+      if (groqRes.ok) {
+        groqState = 'healthy';
+      } else if (groqRes.status === 429) {
+        groqState = 'rate_limited';
+      } else {
+        groqState = 'unreachable';
+      }
+    } catch {
+      groqState = 'unreachable';
+    }
+  }
+
+  // 4. Check Gemini API configuration
   const geminiKey = process.env.GEMINI_API_KEY || '';
   const geminiConfigured = !!(geminiKey && !geminiKey.includes('YOUR') && geminiKey.length > 10);
 
-  // 4. Probe Turso DB connectivity
+  // 5. Probe Turso DB connectivity
   let tursoConnected = false;
   try {
     const testState = await kvGet('agentState');
@@ -53,7 +102,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       services: {
         bitgetApi: bitgetApiReachable,
         bitgetWS: false, // Serverless stateless architecture
-        qwen: qwenConfigured,
+        qwen: qwenState === 'healthy',
+        qwenState,
+        groq: groqState === 'healthy',
+        groqState,
         gemini: geminiConfigured,
         turso: tursoConnected,
       },

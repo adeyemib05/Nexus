@@ -824,6 +824,10 @@ export interface AiTradingDecision {
 
 export interface AiDecisionResult extends AiTradingDecision {
   provider: 'qwen-3.8-max' | 'groq-qwen-32b' | 'fallback_hold';
+  providerAttempted?: string;
+  providerSuccess?: boolean;
+  providerFailureReason?: string;
+  latencyMs?: number;
   failed?: boolean;
   failureReason?: string;
 }
@@ -923,12 +927,20 @@ Decide BUY, SELL, or HOLD. Return valid JSON only.`;
 }
 
 export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<AiDecisionResult> {
+  const startTime = Date.now();
+  let providerAttempted = 'qwen-3.8-max';
+  let providerFailureReason: string | undefined;
+
   const fallbackHold = (reason: string): AiDecisionResult => ({
     action: 'HOLD',
     confidence: 50,
     strategy: 'capital_protection',
     reasoning: `Safe hold enforced: ${reason}`,
     provider: 'fallback_hold',
+    providerAttempted,
+    providerSuccess: false,
+    providerFailureReason: reason,
+    latencyMs: Date.now() - startTime,
     failed: true,
     failureReason: reason,
   });
@@ -941,9 +953,10 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
 
   // 1. Primary: Alibaba Cloud Qwen 3.8 Max (Bitget Hackathon Sponsor)
   if (qwenKey && !qwenKey.includes('YOUR')) {
+    const qwenStart = Date.now();
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8.0s safe serverless budget
 
       const qwenRes = await fetch(`${qwenBase}/chat/completions`, {
         method: 'POST',
@@ -958,7 +971,7 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
             { role: 'user', content: userPrompt },
           ],
           temperature: 0.1,
-          max_tokens: 250,
+          max_tokens: 180,
         }),
         signal: controller.signal,
       });
@@ -969,24 +982,37 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
         const rawContent = data?.choices?.[0]?.message?.content || '{}';
         const parsed = parseAndValidateDecision(rawContent);
         if (parsed) {
-          return { ...parsed, provider: 'qwen-3.8-max' };
+          return {
+            ...parsed,
+            provider: 'qwen-3.8-max',
+            providerAttempted: 'qwen-3.8-max',
+            providerSuccess: true,
+            latencyMs: Date.now() - qwenStart,
+          };
         } else {
+          providerFailureReason = 'Qwen response failed schema validation';
           console.warn('[requestAiTradingDecision] Qwen response failed schema validation:', rawContent);
         }
       } else {
+        providerFailureReason = `Qwen HTTP ${qwenRes.status}`;
         console.warn(`[requestAiTradingDecision] Qwen returned HTTP ${qwenRes.status}`);
       }
     } catch (err: any) {
+      providerFailureReason = err.name === 'AbortError' ? 'Qwen 8s timeout exceeded' : `Qwen error: ${err.message}`;
       console.warn('[requestAiTradingDecision] Qwen fetch/parse failed:', err.message);
     }
+  } else {
+    providerFailureReason = 'Qwen API key unconfigured';
   }
 
   // 2. Secondary: Groq LPU Engine
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey && !groqKey.includes('YOUR')) {
+    providerAttempted = 'groq-qwen-32b';
+    const groqStart = Date.now();
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
 
       const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
@@ -1001,7 +1027,7 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
             { role: 'user', content: userPrompt },
           ],
           temperature: 0.1,
-          max_tokens: 250,
+          max_tokens: 180,
         }),
         signal: controller.signal,
       });
@@ -1012,20 +1038,32 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
         const rawContent = data?.choices?.[0]?.message?.content || '{}';
         const parsed = parseAndValidateDecision(rawContent);
         if (parsed) {
-          return { ...parsed, provider: 'groq-qwen-32b' };
+          return {
+            ...parsed,
+            provider: 'groq-qwen-32b',
+            providerAttempted: 'groq-qwen-32b',
+            providerSuccess: true,
+            latencyMs: Date.now() - groqStart,
+          };
         } else {
+          providerFailureReason = 'Groq response failed schema validation';
           console.warn('[requestAiTradingDecision] Groq response failed schema validation:', rawContent);
         }
+      } else if (groqRes.status === 429) {
+        providerFailureReason = 'Groq daily rate limit reached (HTTP 429)';
+        console.warn('[requestAiTradingDecision] Groq daily token-per-day rate limit reached (HTTP 429)');
       } else {
+        providerFailureReason = `Groq HTTP ${groqRes.status}`;
         console.warn(`[requestAiTradingDecision] Groq returned HTTP ${groqRes.status}`);
       }
     } catch (err: any) {
+      providerFailureReason = err.name === 'AbortError' ? 'Groq 3.5s timeout exceeded' : `Groq error: ${err.message}`;
       console.warn('[requestAiTradingDecision] Groq fetch/parse failed:', err.message);
     }
   }
 
   // 3. Fail-Safe: HOLD (Never fall back to deterministic BUY/SELL)
-  return fallbackHold('AI reasoning service unavailable or returned invalid contract. Operating in fail-safe capital protection mode.');
+  return fallbackHold(providerFailureReason || 'AI reasoning service unavailable or returned invalid contract. Operating in fail-safe capital protection mode.');
 }
 
 export function evaluateAndExecuteWithGuardrails(
@@ -1298,6 +1336,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       strategy: aiDecision.strategy,
       reasoning: aiDecision.reasoning,
       provider: aiDecision.provider,
+      providerAttempted: aiDecision.providerAttempted || aiDecision.provider,
+      providerSuccess: aiDecision.providerSuccess ?? (aiDecision.provider !== 'fallback_hold'),
+      providerFailureReason: aiDecision.providerFailureReason || null,
+      latencyMs: aiDecision.latencyMs || null,
       fusedScore: regime.fusedScore,
       regime: regime.regime,
       executed: !!newTrade,
