@@ -149,11 +149,11 @@ export interface ApiResponse<T = unknown> {
 }
 
 export const SIGNAL_CONFIG = {
-  macro:     { label: 'Macro',      icon: 'Globe2',     weight: 0.25 },
-  technical: { label: 'Technical',  icon: 'LineChart',  weight: 0.30 },
-  sentiment: { label: 'Sentiment',  icon: 'TrendingUp', weight: 0.20 },
-  onchain:   { label: 'On-Chain',   icon: 'Network',    weight: 0.15 },
-  news:      { label: 'News',       icon: 'Newspaper',  weight: 0.10 },
+  macro:     { label: 'Volume & Liquidity', icon: 'Globe2',     weight: 0.25 },
+  technical: { label: 'Technical',          icon: 'LineChart',  weight: 0.30 },
+  sentiment: { label: 'Sentiment',          icon: 'TrendingUp', weight: 0.20 },
+  onchain:   { label: 'On-Chain & Fees',    icon: 'Network',    weight: 0.15 },
+  news:      { label: 'News & Events',      icon: 'Newspaper',  weight: 0.10 },
 } as const;
 
 export const REGIME_CONFIG = {
