@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Wallet, TrendingUp, Target, BarChart3, Pause, Play } from 'lucide-react';
+import { Wallet, TrendingUp, Target, BarChart3, Pause, Play, Brain, FlaskConical, Compass, ExternalLink } from 'lucide-react';
 import { useNexusStore } from '../store';
 import StatCard from '../components/ui/StatCard';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -9,11 +10,14 @@ import IntelligenceStrip from '../components/dashboard/IntelligenceStrip';
 import RecentAiActivity from '../components/dashboard/RecentAiActivity';
 import OperationalStatus from '../components/dashboard/OperationalStatus';
 import IntelligenceDrawer from '../components/intelligence/IntelligenceDrawer';
+import MarketChart from '../components/chart/MarketChart';
+import AiRationaleDrawer from '../components/chart/AiRationaleDrawer';
 import { formatPrice, formatPct } from '../lib/utils';
 import { startAgent, pauseAgent, getAgentState } from '../lib/api';
-import type { SignalReading } from '../types';
+import type { SignalReading, HistoricalAiDecision } from '../types';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const agentState = useNexusStore((s) => s.agentState);
   const signals = useNexusStore((s) => s.signals);
   const currentRegime = useNexusStore((s) => s.currentRegime);
@@ -25,10 +29,31 @@ export default function Dashboard() {
 
   const [isToggling, setIsToggling] = useState(false);
   const [selectedSignal, setSelectedSignal] = useState<SignalReading | null>(null);
+  const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
 
   const isRunning = agentState?.status === 'running';
   const sharpe = performance?.sharpeRatio || 0;
   const dailyTrades = trades.filter((t) => t.openedAt > Date.now() - 24 * 3600 * 1000).length;
+
+  // Adapt lastAiDecision to HistoricalAiDecision for the drawer
+  const currentAiDecision: HistoricalAiDecision | null = agentState?.lastAiDecision
+    ? {
+        id: `ai_${agentState.lastAiDecision.timestamp}`,
+        timestamp: agentState.lastAiDecision.timestamp,
+        symbol: agentState.lastAiDecision.symbol || 'BTCUSDT',
+        marketPrice: agentState.lastAiDecision.marketPrice || ticker?.price || 0,
+        action: agentState.lastAiDecision.action as 'BUY' | 'SELL' | 'HOLD',
+        confidence: agentState.lastAiDecision.confidence,
+        strategy: agentState.lastAiDecision.strategy,
+        reasoning: agentState.lastAiDecision.reasoning,
+        provider: agentState.lastAiDecision.provider,
+        fusedScore: agentState.lastAiDecision.fusedScore,
+        regime: agentState.lastAiDecision.regime,
+        executed: agentState.lastAiDecision.executed,
+        blockReason: agentState.lastAiDecision.blockReason,
+        tradeId: agentState.lastAiDecision.tradeId,
+      }
+    : null;
 
   async function handleToggle() {
     setIsToggling(true);
@@ -55,10 +80,53 @@ export default function Dashboard() {
       {/* 1. AI AUTONOMOUS DECISION HERO (Centerpiece) */}
       <AiDecisionHero agentState={agentState} currentRegime={currentRegime} />
 
+      {/* PROMINENT QUICK ACTIONS STRIP */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-nexus-elevated border border-white/[0.08]">
+        <span className="text-xs font-mono text-nexus-textMuted flex items-center gap-1.5 pl-1">
+          <Compass size={14} className="text-nexus-accent" />
+          Terminal Navigation:
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {currentAiDecision && (
+            <button
+              onClick={() => setIsAiDrawerOpen(true)}
+              className="px-3 py-1.5 rounded-lg bg-nexus-accent/15 border border-nexus-accent/40 text-nexus-accent font-display font-semibold text-xs flex items-center gap-1.5 hover:bg-nexus-accent/25 transition-all cursor-pointer"
+            >
+              <Brain size={13} />
+              View Current AI Reasoning
+            </button>
+          )}
+
+          <button
+            onClick={() => navigate('/intelligence')}
+            className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-nexus-textPrimary font-display font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+          >
+            <ExternalLink size={13} />
+            View Full Intelligence
+          </button>
+
+          <button
+            onClick={() => navigate('/backtest')}
+            className="px-3 py-1.5 rounded-lg bg-purple-500/15 border border-purple-500/30 hover:bg-purple-500/25 text-purple-300 font-display font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+          >
+            <FlaskConical size={13} />
+            Open Backtest Lab
+          </button>
+        </div>
+      </div>
+
       {/* 2. 5-ENGINE MARKET INTELLIGENCE STRIP */}
       <IntelligenceStrip
         signals={signals}
         onSelectSignal={(sig) => setSelectedSignal(sig)}
+      />
+
+      {/* 3. LIVE INTERACTIVE MARKET CHART */}
+      <MarketChart
+        symbol={ticker?.symbol || 'BTCUSDT'}
+        currentTicker={ticker}
+        trades={trades}
+        defaultTimeframe="1m"
       />
 
       {/* 3. CORE FINANCIAL KPIS */}
@@ -148,6 +216,13 @@ export default function Dashboard() {
         signal={selectedSignal}
         isOpen={!!selectedSignal}
         onClose={() => setSelectedSignal(null)}
+      />
+
+      {/* AI Decision Rationale Drawer */}
+      <AiRationaleDrawer
+        decision={currentAiDecision}
+        isOpen={isAiDrawerOpen}
+        onClose={() => setIsAiDrawerOpen(false)}
       />
     </motion.div>
   );

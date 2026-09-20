@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Brain, BarChart2, Settings as SettingsIcon, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, Brain, BarChart2, Settings as SettingsIcon, ShieldAlert, FlaskConical } from 'lucide-react';
 import { useNexusStore } from '../../store';
 import { cn } from '../../lib/utils';
 import type { AgentStatus } from '../../types';
@@ -7,6 +7,7 @@ import type { AgentStatus } from '../../types';
 const PRIMARY_NAV = [
   { name: 'Overview', path: '/', icon: LayoutDashboard },
   { name: 'Intelligence', path: '/intelligence', icon: Brain },
+  { name: 'Backtest', path: '/backtest', icon: FlaskConical },
   { name: 'Agent', path: '/performance', icon: BarChart2 },
   { name: 'Stress Test', path: '/stress-test', icon: ShieldAlert },
 ];

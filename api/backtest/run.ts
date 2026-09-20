@@ -132,8 +132,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const body = req.body || {};
-    const symbol = body.symbol || 'BTCUSDT';
-    const granularity = body.granularity || '1h';
+    const symbol = (body.symbol || 'BTCUSDT').toUpperCase().trim();
+    const rawGranularity = String(body.granularity || '1h').toLowerCase().trim();
+    const validGranularities: Record<string, string> = {
+      '1m': '1m',
+      '5m': '5m',
+      '15m': '15m',
+      '30m': '30m',
+      '1h': '1h',
+      '4h': '4h',
+      '6h': '6h',
+      '12h': '12h',
+      '1d': '1d',
+      '3d': '3d',
+      '1w': '1w',
+    };
+    const granularity = validGranularities[rawGranularity] || '1h';
     const days = Math.min(parseInt(body.days, 10) || 30, 90);
 
     let candles: Candle[] = await fetchBitgetCandles(symbol, granularity, 200);
@@ -141,7 +155,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (candles.length < WINDOW_SIZE + 5) {
       return res.status(400).json({
         success: false,
-        error: `Insufficient historical candle data for ${symbol} (${candles.length} candles).`,
+        error: `Insufficient historical candle data for ${symbol} with granularity '${granularity}' (${candles.length} candles returned by Bitget Spot API).`,
         timestamp: now,
       });
     }
@@ -303,6 +317,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    const strategyBreakdown: Record<string, { count: number; winRate: number; avgPnl: number }> = {};
+    for (const t of closedTrades) {
+      if (!strategyBreakdown[t.strategy]) {
+        strategyBreakdown[t.strategy] = { count: 0, winRate: 0, avgPnl: 0 };
+      }
+      strategyBreakdown[t.strategy].count += 1;
+    }
+    for (const [strat, stat] of Object.entries(strategyBreakdown)) {
+      const sTrades = closedTrades.filter((t) => t.strategy === strat);
+      const wins = sTrades.filter((t) => t.pnl > 0).length;
+      stat.winRate = sTrades.length > 0 ? wins / sTrades.length : 0;
+      stat.avgPnl = sTrades.length > 0 ? sTrades.reduce((s, t) => s + t.pnl, 0) / sTrades.length : 0;
+    }
+
     const result = {
       id: `bt-${Date.now()}`,
       symbol,
@@ -319,6 +347,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       totalTrades: closedTrades.length,
       winningTradesCount: winningTrades.length,
       losingTradesCount: losingTrades.length,
+      strategyBreakdown,
       regimeDistribution,
       trades: closedTrades.slice(-20),
       equityCurve: equityCurve.filter((_, idx) => idx % Math.max(1, Math.floor(equityCurve.length / 50)) === 0),

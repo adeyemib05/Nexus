@@ -140,24 +140,102 @@ export async function initDb(): Promise<void> {
       const endpoint = getEndpoint();
       if (!endpoint) return;
 
+      const initStatements = [
+        'CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT)',
+        `CREATE TABLE IF NOT EXISTS market_candles (
+          symbol TEXT NOT NULL,
+          timeframe TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          open REAL NOT NULL,
+          high REAL NOT NULL,
+          low REAL NOT NULL,
+          close REAL NOT NULL,
+          volume REAL NOT NULL,
+          PRIMARY KEY (symbol, timeframe, timestamp)
+        )`,
+        'CREATE INDEX IF NOT EXISTS idx_market_candles_lookup ON market_candles (symbol, timeframe, timestamp DESC)',
+        `CREATE TABLE IF NOT EXISTS indicator_snapshots (
+          id TEXT PRIMARY KEY,
+          symbol TEXT NOT NULL,
+          timeframe TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          rsi REAL,
+          ema20 REAL,
+          ema50 REAL,
+          macd REAL,
+          macd_signal REAL,
+          macd_histogram REAL,
+          indicators_json TEXT
+        )`,
+        'CREATE INDEX IF NOT EXISTS idx_indicators_lookup ON indicator_snapshots (symbol, timeframe, timestamp DESC)',
+        `CREATE TABLE IF NOT EXISTS signal_snapshots (
+          id TEXT PRIMARY KEY,
+          timestamp INTEGER NOT NULL,
+          symbol TEXT NOT NULL,
+          technical_score REAL,
+          technical_confidence REAL,
+          technical_strength TEXT,
+          liquidity_score REAL,
+          liquidity_confidence REAL,
+          liquidity_strength TEXT,
+          sentiment_score REAL,
+          sentiment_confidence REAL,
+          sentiment_strength TEXT,
+          onchain_score REAL,
+          onchain_confidence REAL,
+          onchain_strength TEXT,
+          news_score REAL,
+          news_confidence REAL,
+          news_strength TEXT,
+          fused_score REAL,
+          regime TEXT,
+          regime_confidence REAL,
+          details_json TEXT
+        )`,
+        'CREATE INDEX IF NOT EXISTS idx_signals_lookup ON signal_snapshots (symbol, timestamp DESC)',
+        `CREATE TABLE IF NOT EXISTS ai_decisions (
+          id TEXT PRIMARY KEY,
+          timestamp INTEGER NOT NULL,
+          symbol TEXT NOT NULL,
+          market_price REAL NOT NULL,
+          action TEXT NOT NULL,
+          confidence REAL NOT NULL,
+          strategy TEXT NOT NULL,
+          reasoning TEXT NOT NULL,
+          provider TEXT,
+          fused_score REAL,
+          regime TEXT,
+          executed INTEGER NOT NULL DEFAULT 0,
+          block_reason TEXT,
+          trade_id TEXT
+        )`,
+        'CREATE INDEX IF NOT EXISTS idx_ai_decisions_lookup ON ai_decisions (symbol, timestamp DESC)',
+        `CREATE TABLE IF NOT EXISTS risk_events (
+          id TEXT PRIMARY KEY,
+          timestamp INTEGER NOT NULL,
+          symbol TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          severity TEXT NOT NULL,
+          description TEXT NOT NULL,
+          details_json TEXT
+        )`,
+        'CREATE INDEX IF NOT EXISTS idx_risk_events_lookup ON risk_events (timestamp DESC)',
+      ];
+
       try {
+        const requests = initStatements.map((sql) => ({
+          type: 'execute',
+          stmt: { sql },
+        }));
+        requests.push({ type: 'close' } as any);
+
         await fetch(endpoint.url, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${endpoint.token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            requests: [
-              {
-                type: 'execute',
-                stmt: {
-                  sql: 'CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT)',
-                },
-              },
-              { type: 'close' },
-            ],
-          }),
+          body: JSON.stringify({ requests }),
         });
       } catch (err) {
         console.warn('[Turso initDb] Table creation notice:', err);
@@ -166,6 +244,427 @@ export async function initDb(): Promise<void> {
     })();
   }
   return tableInitPromise;
+}
+
+function formatSqlArg(val: any): { type: string; value?: any } {
+  if (val === null || val === undefined) return { type: 'null' };
+  if (typeof val === 'number') {
+    if (Number.isInteger(val)) return { type: 'integer', value: String(val) };
+    return { type: 'float', value: val };
+  }
+  if (typeof val === 'boolean') {
+    return { type: 'integer', value: val ? '1' : '0' };
+  }
+  return { type: 'text', value: String(val) };
+}
+
+function extractCellValue(cell: any): any {
+  if (cell === null || cell === undefined) return null;
+  if (typeof cell === 'object' && 'value' in cell) {
+    const val = cell.value;
+    if (val === null || val === undefined) return null;
+    if (cell.type === 'integer') {
+      const num = Number(val);
+      return Number.isSafeInteger(num) ? num : val;
+    }
+    if (cell.type === 'float') {
+      return Number(val);
+    }
+    return val;
+  }
+  return cell;
+}
+
+export async function querySql<T = Record<string, any>>(sql: string, args: any[] = []): Promise<T[]> {
+  const endpoint = getEndpoint();
+  if (!endpoint) return [];
+
+  try {
+    await initDb();
+    const formattedArgs = args.map(formatSqlArg);
+    const res = await fetch(endpoint.url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${endpoint.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        requests: [
+          {
+            type: 'execute',
+            stmt: { sql, args: formattedArgs },
+          },
+          { type: 'close' },
+        ],
+      }),
+    });
+
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const result = data?.results?.[0]?.response?.result;
+    if (!result) return [];
+
+    const cols: Array<{ name: string }> = result.cols || [];
+    const rows: any[][] = result.rows || [];
+
+    return rows.map((row) => {
+      const obj: Record<string, any> = {};
+      cols.forEach((col, idx) => {
+        obj[col.name] = extractCellValue(row[idx]);
+      });
+      return obj as T;
+    });
+  } catch (err) {
+    console.warn('[Turso querySql] Error executing query:', err);
+    return [];
+  }
+}
+
+export async function executeSql(sql: string, args: any[] = []): Promise<boolean> {
+  const endpoint = getEndpoint();
+  if (!endpoint) return false;
+
+  try {
+    await initDb();
+    const formattedArgs = args.map(formatSqlArg);
+    const res = await fetch(endpoint.url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${endpoint.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        requests: [
+          {
+            type: 'execute',
+            stmt: { sql, args: formattedArgs },
+          },
+          { type: 'close' },
+        ],
+      }),
+    });
+
+    return res.ok;
+  } catch (err) {
+    console.warn('[Turso executeSql] Error executing statement:', err);
+    return false;
+  }
+}
+
+export async function executeBatchSql(stmts: Array<{ sql: string; args?: any[] }>): Promise<boolean> {
+  const endpoint = getEndpoint();
+  if (!endpoint || stmts.length === 0) return false;
+
+  try {
+    await initDb();
+    const requests = stmts.map(({ sql, args }) => ({
+      type: 'execute',
+      stmt: {
+        sql,
+        args: (args || []).map(formatSqlArg),
+      },
+    }));
+    requests.push({ type: 'close' } as any);
+
+    const res = await fetch(endpoint.url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${endpoint.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ requests }),
+    });
+
+    return res.ok;
+  } catch (err) {
+    console.warn('[Turso executeBatchSql] Error executing batch:', err);
+    return false;
+  }
+}
+
+// ── RELATIONAL HISTORICAL STORE ACCESSORS ──────────────────────────────────────
+
+export interface HistoricalCandle {
+  symbol: string;
+  timeframe: string;
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export async function saveCandles(candles: HistoricalCandle[]): Promise<boolean> {
+  if (!candles || candles.length === 0) return true;
+  const stmts = candles.map((c) => ({
+    sql: `INSERT OR REPLACE INTO market_candles (symbol, timeframe, timestamp, open, high, low, close, volume)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [c.symbol, c.timeframe, c.timestamp, c.open, c.high, c.low, c.close, c.volume],
+  }));
+  return executeBatchSql(stmts);
+}
+
+export async function getHistoricalCandles(
+  symbol = 'BTCUSDT',
+  timeframe = '1m',
+  limit = 100,
+  from?: number,
+  to?: number
+): Promise<HistoricalCandle[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 500);
+  let sql = 'SELECT symbol, timeframe, timestamp, open, high, low, close, volume FROM market_candles WHERE symbol = ? AND timeframe = ?';
+  const args: any[] = [symbol, timeframe];
+
+  if (from) {
+    sql += ' AND timestamp >= ?';
+    args.push(from);
+  }
+  if (to) {
+    sql += ' AND timestamp <= ?';
+    args.push(to);
+  }
+
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  args.push(safeLimit);
+
+  const rows = await querySql<HistoricalCandle>(sql, args);
+  return rows.reverse(); // Return ascending chronological order for charts
+}
+
+export interface HistoricalIndicatorSnapshot {
+  id?: string;
+  symbol: string;
+  timeframe: string;
+  timestamp: number;
+  rsi: number;
+  ema20: number;
+  ema50: number;
+  macd: number;
+  macdSignal: number;
+  macdHistogram: number;
+  indicatorsJson?: Record<string, any>;
+}
+
+export async function saveIndicatorSnapshot(data: HistoricalIndicatorSnapshot): Promise<boolean> {
+  const id = data.id || `ind_${data.symbol}_${data.timeframe}_${data.timestamp}`;
+  const sql = `INSERT OR REPLACE INTO indicator_snapshots
+    (id, symbol, timeframe, timestamp, rsi, ema20, ema50, macd, macd_signal, macd_histogram, indicators_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const args = [
+    id,
+    data.symbol,
+    data.timeframe,
+    data.timestamp,
+    data.rsi,
+    data.ema20,
+    data.ema50,
+    data.macd,
+    data.macdSignal,
+    data.macdHistogram,
+    data.indicatorsJson ? JSON.stringify(data.indicatorsJson) : null,
+  ];
+  return executeSql(sql, args);
+}
+
+export async function getHistoricalIndicators(
+  symbol = 'BTCUSDT',
+  timeframe = '1m',
+  limit = 50,
+  from?: number,
+  to?: number
+): Promise<HistoricalIndicatorSnapshot[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 200);
+  let sql = 'SELECT id, symbol, timeframe, timestamp, rsi, ema20, ema50, macd, macd_signal as macdSignal, macd_histogram as macdHistogram, indicators_json as indicatorsJson FROM indicator_snapshots WHERE symbol = ? AND timeframe = ?';
+  const args: any[] = [symbol, timeframe];
+
+  if (from) {
+    sql += ' AND timestamp >= ?';
+    args.push(from);
+  }
+  if (to) {
+    sql += ' AND timestamp <= ?';
+    args.push(to);
+  }
+
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  args.push(safeLimit);
+
+  const rows = await querySql<any>(sql, args);
+  return rows.map((r) => ({
+    ...r,
+    indicatorsJson: r.indicatorsJson ? JSON.parse(r.indicatorsJson) : undefined,
+  })).reverse();
+}
+
+export interface HistoricalSignalSnapshot {
+  id?: string;
+  timestamp: number;
+  symbol: string;
+  technical: { score: number; confidence: number; strength: string };
+  liquidity: { score: number; confidence: number; strength: string };
+  sentiment: { score: number; confidence: number; strength: string };
+  onchain: { score: number; confidence: number; strength: string };
+  news: { score: number; confidence: number; strength: string };
+  fusedScore: number;
+  regime: string;
+  regimeConfidence: number;
+  details?: Record<string, any>;
+}
+
+export async function saveSignalSnapshot(data: HistoricalSignalSnapshot): Promise<boolean> {
+  const id = data.id || `sig_${data.symbol}_${data.timestamp}`;
+  const sql = `INSERT OR REPLACE INTO signal_snapshots
+    (id, timestamp, symbol, technical_score, technical_confidence, technical_strength,
+     liquidity_score, liquidity_confidence, liquidity_strength,
+     sentiment_score, sentiment_confidence, sentiment_strength,
+     onchain_score, onchain_confidence, onchain_strength,
+     news_score, news_confidence, news_strength,
+     fused_score, regime, regime_confidence, details_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const args = [
+    id,
+    data.timestamp,
+    data.symbol,
+    data.technical.score,
+    data.technical.confidence,
+    data.technical.strength,
+    data.liquidity.score,
+    data.liquidity.confidence,
+    data.liquidity.strength,
+    data.sentiment.score,
+    data.sentiment.confidence,
+    data.sentiment.strength,
+    data.onchain.score,
+    data.onchain.confidence,
+    data.onchain.strength,
+    data.news.score,
+    data.news.confidence,
+    data.news.strength,
+    data.fusedScore,
+    data.regime,
+    data.regimeConfidence,
+    data.details ? JSON.stringify(data.details) : null,
+  ];
+  return executeSql(sql, args);
+}
+
+export async function getHistoricalSignals(
+  symbol = 'BTCUSDT',
+  limit = 50,
+  from?: number,
+  to?: number
+): Promise<HistoricalSignalSnapshot[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 200);
+  let sql = `SELECT id, timestamp, symbol,
+    technical_score as tech_s, technical_confidence as tech_c, technical_strength as tech_st,
+    liquidity_score as liq_s, liquidity_confidence as liq_c, liquidity_strength as liq_st,
+    sentiment_score as sent_s, sentiment_confidence as sent_c, sentiment_strength as sent_st,
+    onchain_score as onc_s, onchain_confidence as onc_c, onchain_strength as onc_st,
+    news_score as news_s, news_confidence as news_c, news_strength as news_st,
+    fused_score as fusedScore, regime, regime_confidence as regimeConfidence, details_json as detailsJson
+    FROM signal_snapshots WHERE symbol = ?`;
+  const args: any[] = [symbol];
+
+  if (from) {
+    sql += ' AND timestamp >= ?';
+    args.push(from);
+  }
+  if (to) {
+    sql += ' AND timestamp <= ?';
+    args.push(to);
+  }
+
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  args.push(safeLimit);
+
+  const rows = await querySql<any>(sql, args);
+  return rows.map((r) => ({
+    id: r.id,
+    timestamp: r.timestamp,
+    symbol: r.symbol,
+    technical: { score: r.tech_s, confidence: r.tech_c, strength: r.tech_st },
+    liquidity: { score: r.liq_s, confidence: r.liq_c, strength: r.liq_st },
+    sentiment: { score: r.sent_s, confidence: r.sent_c, strength: r.sent_st },
+    onchain: { score: r.onc_s, confidence: r.onc_c, strength: r.onc_st },
+    news: { score: r.news_s, confidence: r.news_c, strength: r.news_st },
+    fusedScore: r.fusedScore,
+    regime: r.regime,
+    regimeConfidence: r.regimeConfidence,
+    details: r.detailsJson ? JSON.parse(r.detailsJson) : undefined,
+  })).reverse();
+}
+
+export interface HistoricalAiDecision {
+  id: string;
+  timestamp: number;
+  symbol: string;
+  marketPrice: number;
+  action: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  strategy: string;
+  reasoning: string;
+  provider?: string;
+  fusedScore?: number;
+  regime?: string;
+  executed: boolean;
+  blockReason?: string | null;
+  tradeId?: string | null;
+}
+
+export async function saveHistoricalAiDecision(data: HistoricalAiDecision): Promise<boolean> {
+  const sql = `INSERT OR REPLACE INTO ai_decisions
+    (id, timestamp, symbol, market_price, action, confidence, strategy, reasoning, provider, fused_score, regime, executed, block_reason, trade_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const args = [
+    data.id,
+    data.timestamp,
+    data.symbol,
+    data.marketPrice,
+    data.action,
+    data.confidence,
+    data.strategy,
+    data.reasoning,
+    data.provider || null,
+    data.fusedScore || null,
+    data.regime || null,
+    data.executed ? 1 : 0,
+    data.blockReason || null,
+    data.tradeId || null,
+  ];
+  return executeSql(sql, args);
+}
+
+export async function getHistoricalAiDecisions(
+  symbol = 'BTCUSDT',
+  limit = 50,
+  from?: number,
+  to?: number
+): Promise<HistoricalAiDecision[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 200);
+  let sql = `SELECT id, timestamp, symbol, market_price as marketPrice, action, confidence, strategy, reasoning,
+    provider, fused_score as fusedScore, regime, executed, block_reason as blockReason, trade_id as tradeId
+    FROM ai_decisions WHERE symbol = ?`;
+  const args: any[] = [symbol];
+
+  if (from) {
+    sql += ' AND timestamp >= ?';
+    args.push(from);
+  }
+  if (to) {
+    sql += ' AND timestamp <= ?';
+    args.push(to);
+  }
+
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  args.push(safeLimit);
+
+  const rows = await querySql<any>(sql, args);
+  return rows.map((r) => ({
+    ...r,
+    executed: Boolean(r.executed),
+  })).reverse();
 }
 
 export async function kvGet(key: string): Promise<any | null> {
@@ -252,23 +751,7 @@ export async function kvSet(key: string, value: unknown): Promise<boolean> {
 
 export const client = {
   execute: async ({ sql, args }: { sql: string; args?: any[] }) => {
-    const endpoint = getEndpoint();
-    if (!endpoint) throw new Error('Turso credentials missing');
-    const formattedArgs = (args || []).map((a) => ({ type: 'text', value: String(a) }));
-    const res = await fetch(endpoint.url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${endpoint.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        requests: [
-          { type: 'execute', stmt: { sql, args: formattedArgs } },
-          { type: 'close' },
-        ],
-      }),
-    });
-    return res.json();
+    return querySql(sql, args);
   },
 };
 

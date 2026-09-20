@@ -26,10 +26,11 @@ export default function Settings() {
   const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
 
   const [btSymbol, setBtSymbol] = useState('BTCUSDT');
-  const [btGranularity, setBtGranularity] = useState('1H');
+  const [btGranularity, setBtGranularity] = useState('1h');
   const [btDays, setBtDays] = useState(30);
   const [isRunningBacktest, setIsRunningBacktest] = useState(false);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
 
   const [services, setServices] = useState<HealthServices | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -57,9 +58,16 @@ export default function Settings() {
   async function handleRunBacktest() {
     setIsRunningBacktest(true);
     setBacktestResult(null);
+    setBacktestError(null);
     try {
       const res = await runBacktest({ symbol: btSymbol, granularity: btGranularity, days: btDays });
-      if (res.success && res.data) setBacktestResult(res.data);
+      if (res.success && res.data) {
+        setBacktestResult(res.data);
+      } else {
+        setBacktestError(res.error || 'Backtest failed to execute. Check symbol or granularity.');
+      }
+    } catch (err: any) {
+      setBacktestError(err?.message || 'Network error running backtest.');
     } finally {
       setIsRunningBacktest(false);
     }
@@ -224,9 +232,12 @@ export default function Settings() {
                   onChange={(e) => setBtGranularity(e.target.value)}
                   className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-2 py-2 text-xs font-mono text-nexus-textPrimary"
                 >
-                  <option value="1H">1H</option>
-                  <option value="4H">4H</option>
-                  <option value="1D">1D</option>
+                  <option value="1m">1m</option>
+                  <option value="5m">5m</option>
+                  <option value="15m">15m</option>
+                  <option value="1h">1h</option>
+                  <option value="4h">4h</option>
+                  <option value="1d">1d</option>
                 </select>
               </div>
               <div>
@@ -258,6 +269,16 @@ export default function Settings() {
                 <>▶ Run Backtest</>
               )}
             </button>
+
+            {backtestError && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="p-3 mt-4 rounded-lg bg-nexus-bear/10 border border-nexus-bear/30 text-nexus-bear text-xs font-mono"
+              >
+                ⚠ {backtestError}
+              </motion.div>
+            )}
 
             {backtestResult && (
               <motion.div

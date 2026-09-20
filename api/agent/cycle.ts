@@ -2,6 +2,10 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   kvGet,
   kvSet,
+  saveCandles,
+  saveIndicatorSnapshot,
+  saveSignalSnapshot,
+  saveHistoricalAiDecision,
   getDefaultHistoricalTrades,
   computeDetailedPerformance,
   type Trade,
@@ -135,6 +139,56 @@ function calculateRSI(closes: number[], period = 14): number {
   return 100 - 100 / (1 + rs);
 }
 
+export function calculateEMASeries(prices: number[], period: number): number[] {
+  if (prices.length === 0) return [];
+  const k = 2 / (period + 1);
+  const ema: number[] = [prices[0]];
+  for (let i = 1; i < prices.length; i++) {
+    ema.push(prices[i] * k + ema[i - 1] * (1 - k));
+  }
+  return ema;
+}
+
+export function calculateMACD(
+  closes: number[],
+  fastPeriod = 12,
+  slowPeriod = 26,
+  signalPeriod = 9
+): { macd: number; signal: number; histogram: number; series: Array<{ macd: number; signal: number; histogram: number }> } {
+  if (closes.length < slowPeriod) {
+    return { macd: 0, signal: 0, histogram: 0, series: [] };
+  }
+
+  const emaFast = calculateEMASeries(closes, fastPeriod);
+  const emaSlow = calculateEMASeries(closes, slowPeriod);
+
+  const macdSeries: number[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    macdSeries.push(emaFast[i] - emaSlow[i]);
+  }
+
+  const signalSeries = calculateEMASeries(macdSeries, signalPeriod);
+
+  const series: Array<{ macd: number; signal: number; histogram: number }> = [];
+  for (let i = 0; i < closes.length; i++) {
+    const m = macdSeries[i];
+    const s = signalSeries[i];
+    series.push({
+      macd: parseFloat(m.toFixed(2)),
+      signal: parseFloat(s.toFixed(2)),
+      histogram: parseFloat((m - s).toFixed(2)),
+    });
+  }
+
+  const latest = series[series.length - 1];
+  return {
+    macd: latest.macd,
+    signal: latest.signal,
+    histogram: latest.histogram,
+    series,
+  };
+}
+
 function computeTechnicalSignal(candles: Candle[]): SignalReading {
   const now = Date.now();
   if (!candles || candles.length < 25) {
@@ -143,7 +197,7 @@ function computeTechnicalSignal(candles: Candle[]): SignalReading {
       score: 0,
       strength: 'neutral',
       confidence: 0,
-      label: 'Technical Momentum (EMA/RSI)',
+      label: 'Technical Momentum (EMA/RSI/MACD)',
       source: 'fallback',
       available: false,
       details: { reason: 'insufficient_candle_data' },
@@ -160,6 +214,7 @@ function computeTechnicalSignal(candles: Candle[]): SignalReading {
   const ema50 = ema50Arr[ema50Arr.length - 1];
 
   const rsi = calculateRSI(closes, 14);
+  const macdData = calculateMACD(closes, 12, 26, 9);
 
   let emaTrendScore = 0;
   if (ema20 > ema50) {
@@ -173,21 +228,32 @@ function computeTechnicalSignal(candles: Candle[]): SignalReading {
   else if (rsi < 30) rsiScore = clamp((30 - rsi) / 30, 0.2, 0.7);
   else rsiScore = clamp((rsi - 50) / 25, -0.6, 0.6);
 
-  const score = clamp(emaTrendScore * 0.60 + rsiScore * 0.40, -1, 1);
-  const confidence = clamp(0.65 + Math.abs(score) * 0.25, 0.50, 0.92);
+  // Genuine MACD momentum: positive when histogram is expanding above zero line
+  let macdScore = 0;
+  if (macdData.histogram > 0) {
+    macdScore = clamp(macdData.histogram / (currentPrice * 0.001 || 1), 0.1, 0.85);
+  } else {
+    macdScore = clamp(macdData.histogram / (currentPrice * 0.001 || 1), -0.85, -0.1);
+  }
+
+  const score = clamp(emaTrendScore * 0.45 + rsiScore * 0.30 + macdScore * 0.25, -1, 1);
+  const confidence = clamp(0.65 + Math.abs(score) * 0.25, 0.50, 0.95);
 
   return {
     type: 'technical',
     score: parseFloat(score.toFixed(3)),
     strength: scoreToStrength(score),
     confidence: parseFloat(confidence.toFixed(2)),
-    label: 'Technical Momentum (EMA/RSI)',
+    label: 'Technical Momentum (EMA/RSI/MACD)',
     source: 'live',
     available: true,
     details: {
       rsi: parseFloat(rsi.toFixed(1)),
       ema20: parseFloat(ema20.toFixed(2)),
       ema50: parseFloat(ema50.toFixed(2)),
+      macd: macdData.macd,
+      macdSignal: macdData.signal,
+      macdHistogram: macdData.histogram,
       priceVsEma20: `${((currentPrice - ema20) / ema20 * 100).toFixed(2)}%`,
     },
     timestamp: now,
@@ -1228,11 +1294,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       storedTrades = getDefaultHistoricalTrades();
     }
 
-    // 3. Fetch live market data from Bitget
-    const [ticker, candles] = await Promise.all([
+    // 3. Fetch live market data from Bitget (1m candles for precision + 1h candles for macro trend)
+    const [ticker, candles1m, candles1h] = await Promise.all([
       fetchTicker('BTCUSDT'),
+      fetchCandles('BTCUSDT', '1m', 100),
       fetchCandles('BTCUSDT', '1h', 100),
     ]);
+    const candles = candles1m.length >= 25 ? candles1m : candles1h;
 
     // Resolve market price with fail-closed safety (no arbitrary hardcoded constant)
     const currentPrice =
@@ -1257,7 +1325,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       computeOnchainSignal(),
       computeNewsSignal(),
     ]);
-    const macro = computeMacroSignal(ticker, candles);
+    const macro = computeMacroSignal(ticker, candles1h.length >= 20 ? candles1h : candles);
 
     const signals = [technical, macro, sentiment, onchain, news];
 
@@ -1365,12 +1433,87 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       lastAiDecision: lastAiDecisionLog,
     };
 
-    // Commit state changes to Turso in parallel
-    await Promise.all([
+    // 12. Relational Historical Store Ingestion (Turso structured tables + kv_store fallback)
+    const historicalTasks: Promise<any>[] = [
       kvSet('agentState', newState),
       kvSet('trades', finalTrades),
       kvSet('regimeHistory', updatedRegimeHistory),
-    ]);
+    ];
+
+    // Ingest 1m & 1h market candles into market_candles table
+    if (candles1m && candles1m.length > 0) {
+      historicalTasks.push(
+        saveCandles(candles1m.map((c) => ({ symbol: 'BTCUSDT', timeframe: '1m', ...c })))
+      );
+    }
+    if (candles1h && candles1h.length > 0) {
+      historicalTasks.push(
+        saveCandles(candles1h.map((c) => ({ symbol: 'BTCUSDT', timeframe: '1h', ...c })))
+      );
+    }
+
+    // Ingest indicator snapshot
+    const techDetails = technical.details || {};
+    historicalTasks.push(
+      saveIndicatorSnapshot({
+        symbol: 'BTCUSDT',
+        timeframe: '1m',
+        timestamp: now,
+        rsi: typeof techDetails.rsi === 'number' ? techDetails.rsi : 50,
+        ema20: typeof techDetails.ema20 === 'number' ? techDetails.ema20 : currentPrice,
+        ema50: typeof techDetails.ema50 === 'number' ? techDetails.ema50 : currentPrice,
+        macd: typeof techDetails.macd === 'number' ? techDetails.macd : 0,
+        macdSignal: typeof techDetails.macdSignal === 'number' ? techDetails.macdSignal : 0,
+        macdHistogram: typeof techDetails.macdHistogram === 'number' ? techDetails.macdHistogram : 0,
+        indicatorsJson: {
+          priceVsEma20: techDetails.priceVsEma20,
+        },
+      })
+    );
+
+    // Ingest 5-engine signal snapshot
+    historicalTasks.push(
+      saveSignalSnapshot({
+        timestamp: now,
+        symbol: 'BTCUSDT',
+        technical: { score: technical.score, confidence: technical.confidence, strength: technical.strength },
+        liquidity: { score: macro.score, confidence: macro.confidence, strength: macro.strength },
+        sentiment: { score: sentiment.score, confidence: sentiment.confidence, strength: sentiment.strength },
+        onchain: { score: onchain.score, confidence: onchain.confidence, strength: onchain.strength },
+        news: { score: news.score, confidence: news.confidence, strength: news.strength },
+        fusedScore: regime.fusedScore,
+        regime: regime.regime,
+        regimeConfidence: regime.confidence,
+        details: {
+          rsi: techDetails.rsi,
+          macd: techDetails.macd,
+          fundingRate: sentiment.details?.fundingRate,
+          volume24hUsd: macro.details?.volume24hUsd,
+        },
+      })
+    );
+
+    // Ingest historical AI decision
+    historicalTasks.push(
+      saveHistoricalAiDecision({
+        id: `ai_${now}_${nextCycleCount}`,
+        timestamp: now,
+        symbol: 'BTCUSDT',
+        marketPrice: currentPrice,
+        action: aiDecision.action,
+        confidence: aiDecision.confidence,
+        strategy: aiDecision.strategy,
+        reasoning: aiDecision.reasoning,
+        provider: aiDecision.provider,
+        fusedScore: regime.fusedScore,
+        regime: regime.regime,
+        executed: !!newTrade,
+        blockReason: blockReason,
+        tradeId: newTrade?.id || null,
+      })
+    );
+
+    await Promise.allSettled(historicalTasks);
 
     return res.status(200).json({
       success: true,

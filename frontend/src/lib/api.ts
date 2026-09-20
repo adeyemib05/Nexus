@@ -7,7 +7,11 @@ import type {
   PerformanceSnapshot,
   PriceTicker,
   BacktestResult,
-  ApiResponse
+  ApiResponse,
+  HistoricalCandle,
+  HistoricalIndicatorSnapshot,
+  HistoricalSignalSnapshot,
+  HistoricalAiDecision
 } from '../types';
 
 const BASE = import.meta.env.VITE_API_URL || '';
@@ -162,5 +166,63 @@ export async function getBacktestResults(limit?: number): Promise<ApiResponse<Ba
     return res.data;
   } catch (error: any) {
     return { success: false, error: error.message || 'Failed to get backtest results', timestamp: Date.now() };
+  }
+}
+
+export async function getHistoricalCandles(params?: {
+  symbol?: string;
+  timeframe?: string;
+  limit?: number;
+  from?: number;
+  to?: number;
+}): Promise<ApiResponse<HistoricalCandle[]>> {
+  try {
+    const res = await api.get('/market/candles', { params });
+    return res.data;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to fetch historical candles', timestamp: Date.now() };
+  }
+}
+
+export async function getHistoricalIndicators(params?: {
+  symbol?: string;
+  timeframe?: string;
+  limit?: number;
+  from?: number;
+  to?: number;
+}): Promise<ApiResponse<HistoricalIndicatorSnapshot[]>> {
+  try {
+    const res = await api.get('/market/indicators', { params });
+    return res.data;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to fetch historical indicators', timestamp: Date.now() };
+  }
+}
+
+export async function getSignalsHistory(params?: {
+  symbol?: string;
+  limit?: number;
+  from?: number;
+  to?: number;
+}): Promise<ApiResponse<HistoricalSignalSnapshot[]>> {
+  try {
+    const res = await api.get('/signals/history', { params });
+    return res.data;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to fetch signals history', timestamp: Date.now() };
+  }
+}
+
+export async function getAiDecisionsHistory(params?: {
+  symbol?: string;
+  limit?: number;
+  from?: number;
+  to?: number;
+}): Promise<ApiResponse<HistoricalAiDecision[]>> {
+  try {
+    const res = await api.get('/agent/history', { params });
+    return res.data;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to fetch AI decision history', timestamp: Date.now() };
   }
 }

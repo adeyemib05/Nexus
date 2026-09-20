@@ -7,6 +7,7 @@ import StressSimulator from './pages/StressSimulator';
 import Dashboard from './pages/Dashboard';
 import Intelligence from './pages/Intelligence';
 import Performance from './pages/Performance';
+import BacktestLab from './pages/BacktestLab';
 import Settings from './pages/Settings';
 import { useSSE } from './hooks/useSSE';
 import { useNexusStore } from './store';
@@ -60,6 +61,7 @@ export default function App() {
             <Route path="/stress-test" element={<StressSimulator />} />
             <Route path="/" element={<Dashboard />} />
             <Route path="/intelligence" element={<Intelligence />} />
+            <Route path="/backtest" element={<BacktestLab />} />
             <Route path="/performance" element={<Performance />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>

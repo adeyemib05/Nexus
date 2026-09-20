@@ -95,7 +95,9 @@ export interface BacktestResult {
   profitFactor: number;
   trades: BacktestTrade[];
   equityCurve: Array<{ timestamp: number; value: number }>;
-  createdAt: number;
+  strategyBreakdown?: Record<string, { count: number; winRate: number; avgPnl: number }>;
+  regimeDistribution?: Record<string, number>;
+  createdAt?: number;
 }
 
 export interface BacktestTrade {
@@ -295,5 +297,62 @@ export interface PresetTradeIdea {
   thesis: string;
   recommendedScenarioId: string;
   tag: string;
+}
+
+export interface HistoricalCandle {
+  symbol: string;
+  timeframe: string;
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface HistoricalIndicatorSnapshot {
+  id?: string;
+  symbol: string;
+  timeframe: string;
+  timestamp: number;
+  rsi: number;
+  ema20: number;
+  ema50: number;
+  macd: number;
+  macdSignal: number;
+  macdHistogram: number;
+  indicatorsJson?: Record<string, any>;
+}
+
+export interface HistoricalSignalSnapshot {
+  id?: string;
+  timestamp: number;
+  symbol: string;
+  technical: { score: number; confidence: number; strength: string };
+  liquidity: { score: number; confidence: number; strength: string };
+  sentiment: { score: number; confidence: number; strength: string };
+  onchain: { score: number; confidence: number; strength: string };
+  news: { score: number; confidence: number; strength: string };
+  fusedScore: number;
+  regime: string;
+  regimeConfidence: number;
+  details?: Record<string, any>;
+}
+
+export interface HistoricalAiDecision {
+  id: string;
+  timestamp: number;
+  symbol: string;
+  marketPrice: number;
+  action: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  strategy: string;
+  reasoning: string;
+  provider?: string;
+  fusedScore?: number;
+  regime?: string;
+  executed: boolean;
+  blockReason?: string | null;
+  tradeId?: string | null;
 }
 
