@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { kvGet } from '../db';
+import { kvGet, getHistoricalAiDecisions } from '../db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -16,6 +16,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       error: 'Method not allowed. Use GET.',
       timestamp: Date.now(),
     });
+  }
+
+  const isHistory = req.url?.includes('/history') || req.query.sub === 'history';
+  if (isHistory) {
+    try {
+      const symbol = String(req.query.symbol || 'BTCUSDT').toUpperCase().trim();
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || 50), 10) || 50, 5), 200);
+      const from = req.query.from ? parseInt(String(req.query.from), 10) : undefined;
+      const to = req.query.to ? parseInt(String(req.query.to), 10) : undefined;
+
+      const decisions = await getHistoricalAiDecisions(symbol, limit, from, to);
+      return res.status(200).json({
+        success: true,
+        data: decisions,
+        count: decisions.length,
+        symbol,
+        timestamp: Date.now(),
+      });
+    } catch (err: any) {
+      console.error('[Agent History API] Error:', err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Failed to retrieve AI decision history',
+        timestamp: Date.now(),
+      });
+    }
   }
 
   try {

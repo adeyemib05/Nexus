@@ -50,6 +50,22 @@
       "destination": "/api/agent/state?action=pause"
     },
     {
+      "source": "/api/market/candles",
+      "destination": "/api/market?sub=candles"
+    },
+    {
+      "source": "/api/market/indicators",
+      "destination": "/api/market?sub=indicators"
+    },
+    {
+      "source": "/api/signals/history",
+      "destination": "/api/signals?sub=history"
+    },
+    {
+      "source": "/api/agent/history",
+      "destination": "/api/agent/state?sub=history"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
