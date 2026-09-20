@@ -755,7 +755,7 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
           Authorization: `Bearer ${groqKey}`,
         },
         body: JSON.stringify({
-          model: 'qwen/qwen3-32b',
+          model: 'qwen/qwen3.8-27b',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
