@@ -122,6 +122,22 @@ export interface PerformanceSnapshot {
   openTrades: number;
 }
 
+export interface AiDecisionLog {
+  timestamp: number;
+  symbol: string;
+  marketPrice: number;
+  action: 'buy' | 'sell' | 'hold';
+  confidence: number;
+  strategy: string;
+  reasoning: string;
+  provider?: string;
+  fusedScore?: number;
+  regime?: MarketRegime;
+  executed: boolean;
+  blockReason?: string | null;
+  tradeId?: string | null;
+}
+
 export interface AgentState {
   status: AgentStatus;
   currentRegime: RegimeReading | null;
@@ -132,6 +148,13 @@ export interface AgentState {
   currentDrawdown: number;
   haltReason?: string;
   startedAt: number | null;
+  lastAiDecision?: AiDecisionLog | null;
+  lastPrice?: number;
+  totalPnl?: number;
+  totalPnlPct?: number;
+  maxDrawdown?: number;
+  winRate?: number;
+  openTradesCount?: number;
 }
 
 export interface AgentEvent {

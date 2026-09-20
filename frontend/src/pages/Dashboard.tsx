@@ -1,19 +1,17 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Wallet, TrendingUp, Target, BarChart3, Pause, Play, Zap, ShieldAlert, ArrowRight } from 'lucide-react';
+import { Wallet, TrendingUp, Target, BarChart3, Pause, Play } from 'lucide-react';
 import { useNexusStore } from '../store';
 import StatCard from '../components/ui/StatCard';
-import ProgressBar from '../components/ui/ProgressBar';
-import ScoreBar from '../components/ui/ScoreBar';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-import RegimeDial from '../components/dashboard/RegimeDial';
-import SignalGrid from '../components/dashboard/SignalGrid';
-import TradesFeed from '../components/dashboard/TradesFeed';
-import PnLMiniChart from '../components/dashboard/PnLMiniChart';
+import AiDecisionHero from '../components/dashboard/AiDecisionHero';
+import IntelligenceStrip from '../components/dashboard/IntelligenceStrip';
+import RecentAiActivity from '../components/dashboard/RecentAiActivity';
+import OperationalStatus from '../components/dashboard/OperationalStatus';
+import IntelligenceDrawer from '../components/intelligence/IntelligenceDrawer';
 import { formatPrice, formatPct } from '../lib/utils';
 import { startAgent, pauseAgent, getAgentState } from '../lib/api';
-import { REGIME_CONFIG } from '../types';
+import type { SignalReading } from '../types';
 
 export default function Dashboard() {
   const agentState = useNexusStore((s) => s.agentState);
@@ -24,11 +22,12 @@ export default function Dashboard() {
   const equityCurve = useNexusStore((s) => s.equityCurve);
   const ticker = useNexusStore((s) => s.ticker);
   const setAgentState = useNexusStore((s) => s.setAgentState);
+
   const [isToggling, setIsToggling] = useState(false);
+  const [selectedSignal, setSelectedSignal] = useState<SignalReading | null>(null);
 
   const isRunning = agentState?.status === 'running';
   const sharpe = performance?.sharpeRatio || 0;
-  const dd = agentState?.currentDrawdown || 0;
   const dailyTrades = trades.filter((t) => t.openedAt > Date.now() - 24 * 3600 * 1000).length;
 
   async function handleToggle() {
@@ -48,46 +47,22 @@ export default function Dashboard() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-6"
+      transition={{ duration: 0.25 }}
+      className="space-y-5 max-w-7xl mx-auto"
     >
-      {/* BITGET HACKATHON S2 BANNER */}
-      <div className="bg-gradient-to-r from-nexus-depth to-[#0C1525] p-4 rounded-2xl border border-nexus-accent/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-card">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-nexus-accent/10 flex items-center justify-center border border-nexus-accent/30 flex-shrink-0">
-            <ShieldAlert className="w-5 h-5 text-nexus-accent" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold text-nexus-accent uppercase tracking-wider">
-                Bitget AI Base Camp S2 · Track 3
-              </span>
-              <span className="px-2 py-0.5 rounded bg-nexus-bull/10 text-nexus-bull text-[10px] font-mono">
-                7×24 Simulator Live
-              </span>
-            </div>
-            <div className="text-sm font-display font-bold text-white mt-0.5">
-              7×24 Pre-Trade Stress Simulator & Monte Carlo Fan Chart
-            </div>
-            <p className="text-xs text-nexus-textSecondary mt-0.5">
-              Stress-test tokenized equities (rNVDA, rAAPL, rTSLA, rCOIN) against weekend liquidity traps and black swans using Qwen 3.8 Max.
-            </p>
-          </div>
-        </div>
+      {/* 1. AI AUTONOMOUS DECISION HERO (Centerpiece) */}
+      <AiDecisionHero agentState={agentState} currentRegime={currentRegime} />
 
-        <Link
-          to="/stress-test"
-          className="px-4 py-2 rounded-xl bg-nexus-accent text-black font-display font-bold text-xs flex items-center justify-center gap-1.5 hover:opacity-90 transition-all shadow-[0_0_15px_rgba(0,200,255,0.3)] whitespace-nowrap cursor-pointer"
-        >
-          <span>LAUNCH SIMULATOR</span>
-          <ArrowRight className="w-3.5 h-3.5 text-black" />
-        </Link>
-      </div>
+      {/* 2. 5-ENGINE MARKET INTELLIGENCE STRIP */}
+      <IntelligenceStrip
+        signals={signals}
+        onSelectSignal={(sig) => setSelectedSignal(sig)}
+      />
 
-      {/* STATS ROW */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 3. CORE FINANCIAL KPIS */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="PORTFOLIO VALUE"
           value={formatPrice(performance?.portfolioValue || 10000)}
@@ -111,105 +86,69 @@ export default function Dashboard() {
         <StatCard
           label="SHARPE RATIO"
           value={sharpe.toFixed(2)}
-          subvalue={sharpe > 1.5 ? 'Excellent' : sharpe > 1 ? 'Good' : sharpe > 0 ? 'Fair' : 'Building...'}
+          subvalue={sharpe > 1.5 ? 'Institutional' : sharpe > 1 ? 'Positive' : 'Calibrating'}
           icon={BarChart3}
         />
       </div>
 
-      {/* MAIN GRID */}
-      <div className="grid lg:grid-cols-12 gap-6">
-        {/* LEFT */}
-        <div className="lg:col-span-5 space-y-6">
-          <RegimeDial regime={currentRegime} />
-
-          <div className="flex items-center gap-3">
-            <span className="stat-label whitespace-nowrap">SIGNAL INTELLIGENCE</span>
-            <div className="flex-1 h-px bg-white/[0.06]" />
-          </div>
-
-          <SignalGrid signals={signals} />
+      {/* 4. SPLIT OPERATIONAL COCKPIT (60% Feed / 40% Safety Status) */}
+      <div className="grid lg:grid-cols-12 gap-5 items-start">
+        {/* Left Column: Recent Activity Feed (7 of 12 cols) */}
+        <div className="lg:col-span-7 space-y-4">
+          <RecentAiActivity
+            agentState={agentState}
+            trades={trades}
+            currentPrice={ticker?.price}
+          />
         </div>
 
-        {/* MIDDLE */}
-        <div className="lg:col-span-4 space-y-4">
-          <div className="glass-card p-3 flex items-center justify-between">
-            <span className="stat-label">Cycle #{agentState?.cycleCount || 0}</span>
+        {/* Right Column: Operational Controls & Risk Gate Status (5 of 12 cols) */}
+        <div className="lg:col-span-5 space-y-4">
+          {/* Agent Engine Control Pill */}
+          <div className="glass-card p-3.5 flex items-center justify-between">
+            <div className="space-y-0.5">
+              <div className="text-xs font-mono font-semibold text-nexus-textPrimary">
+                Autonomous Engine: {isRunning ? 'Running' : 'Paused'}
+              </div>
+              <div className="text-[10px] font-mono text-nexus-textMuted">
+                Bitget Live Simulated Execution
+              </div>
+            </div>
+
             {isToggling ? (
               <LoadingSpinner size="sm" />
             ) : isRunning ? (
               <button
                 onClick={handleToggle}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-display font-semibold bg-nexus-caution/10 border border-nexus-caution/30 text-nexus-caution hover:bg-nexus-caution/20 transition-all"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-nexus-caution/10 border border-nexus-caution/30 text-nexus-caution hover:bg-nexus-caution/20 transition cursor-pointer"
               >
-                <Pause size={12} /> PAUSE
+                <Pause size={12} /> PAUSE ENGINE
               </button>
             ) : (
               <button
                 onClick={handleToggle}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-display font-semibold bg-nexus-bull/10 border border-nexus-bull/30 text-nexus-bull hover:bg-nexus-bull/20 transition-all"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-nexus-bull/10 border border-nexus-bull/30 text-nexus-bull hover:bg-nexus-bull/20 transition cursor-pointer"
               >
-                <Play size={12} /> START
+                <Play size={12} /> START ENGINE
               </button>
             )}
           </div>
 
-          <TradesFeed trades={trades} currentPrice={ticker?.price} />
-        </div>
-
-        {/* RIGHT */}
-        <div className="lg:col-span-3 space-y-4">
-          <div className="glass-card p-4">
-            <div className="flex items-center gap-1.5 mb-3">
-              <Zap size={14} className="text-nexus-accent" />
-              <span className="text-xs font-display font-semibold text-nexus-textPrimary">LIVE SIGNALS</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-nexus-bull animate-pulse ml-auto" />
-            </div>
-            <div className="space-y-2">
-              {signals.map((s) => (
-                <div key={s.type} className="flex items-center gap-2" style={{ maxHeight: 28 }}>
-                  <span className="stat-label w-16 flex-shrink-0">{s.label}</span>
-                  <div className="flex-1">
-                    <ScoreBar score={s.score} size="sm" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="glass-card p-4">
-            <div className="stat-label mb-2">EQUITY CURVE</div>
-            <PnLMiniChart data={equityCurve} height={100} />
-            <div className="font-mono text-xs text-nexus-textSecondary mt-2">
-              {equityCurve.length > 0 ? formatPrice(equityCurve[equityCurve.length - 1].value) : formatPrice(10000)}
-            </div>
-          </div>
-
-          <div className="glass-card p-4">
-            <div className="text-xs font-display font-semibold text-nexus-textPrimary mb-3">RISK MONITOR</div>
-
-            <div className="stat-label mb-1">DRAWDOWN</div>
-            <ProgressBar value={dd} color={dd < 0.05 ? '#10B981' : dd < 0.08 ? '#F59E0B' : '#EF4444'} showValue />
-
-            <div className="flex justify-between mt-3">
-              <span className="stat-label">DAILY TRADES</span>
-              <span className="font-mono text-xs">{dailyTrades}/10</span>
-            </div>
-
-            {agentState?.status === 'halted' && (
-              <div className="mt-3 p-2 rounded-lg bg-nexus-bear/10 border border-nexus-bear/30">
-                <div className="text-xs font-display font-semibold text-nexus-bear">⚠ AGENT HALTED</div>
-                <div className="text-[10px] text-nexus-textSecondary mt-1">{agentState.haltReason}</div>
-              </div>
-            )}
-
-            {currentRegime && (
-              <div className="text-[10px] text-nexus-textMuted mt-3 pt-3 border-t border-white/[0.06]">
-                {REGIME_CONFIG[currentRegime.regime].description}
-              </div>
-            )}
-          </div>
+          <OperationalStatus
+            agentState={agentState}
+            currentRegime={currentRegime}
+            equityCurve={equityCurve}
+            dailyTrades={dailyTrades}
+          />
         </div>
       </div>
+
+      {/* Progressive Disclosure: Forensic Intelligence Drawer */}
+      <IntelligenceDrawer
+        signal={selectedSignal}
+        isOpen={!!selectedSignal}
+        onClose={() => setSelectedSignal(null)}
+      />
     </motion.div>
   );
 }

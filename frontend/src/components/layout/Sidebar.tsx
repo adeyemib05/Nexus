@@ -4,12 +4,11 @@ import { useNexusStore } from '../../store';
 import { cn } from '../../lib/utils';
 import type { AgentStatus } from '../../types';
 
-const NAV_ITEMS = [
-  { name: 'Stress Simulator', path: '/stress-test', icon: ShieldAlert },
-  { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+const PRIMARY_NAV = [
+  { name: 'Overview', path: '/', icon: LayoutDashboard },
   { name: 'Intelligence', path: '/intelligence', icon: Brain },
-  { name: 'Performance', path: '/performance', icon: BarChart2 },
-  { name: 'Settings', path: '/settings', icon: SettingsIcon },
+  { name: 'Agent', path: '/performance', icon: BarChart2 },
+  { name: 'Stress Test', path: '/stress-test', icon: ShieldAlert },
 ];
 
 const STATUS_DOT: Record<AgentStatus, string> = {
@@ -24,7 +23,7 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-// Same mark already approved in Layout.tsx — five signals converging into one decision.
+// Five signals converging into one autonomous decision.
 function NexusLogo() {
   return (
     <svg width="22" height="22" viewBox="0 0 44 52" fill="none">
@@ -46,22 +45,22 @@ function NexusLogo() {
 function NavLinks() {
   return (
     <>
-      {NAV_ITEMS.map(({ name, path, icon: Icon }) => (
+      {PRIMARY_NAV.map(({ name, path, icon: Icon }) => (
         <NavLink
           key={path}
           to={path}
           end={path === '/'}
           className={({ isActive }) =>
             cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-body transition-all duration-150',
+              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-body transition-all duration-150',
               isActive
                 ? 'bg-nexus-accent/[0.08] text-nexus-accent border-l-2 border-nexus-accent pl-[10px]'
-                : 'text-nexus-textSecondary hover:text-nexus-textPrimary hover:bg-white/[0.04]'
+                : 'text-nexus-textSecondary hover:text-nexus-textPrimary hover:bg-white/[0.03]'
             )
           }
         >
-          <Icon size={17} className="flex-shrink-0" />
-          <span>{name}</span>
+          <Icon size={16} className="flex-shrink-0" />
+          <span className="font-medium">{name}</span>
         </NavLink>
       ))}
     </>
@@ -73,12 +72,12 @@ export default function Sidebar() {
 
   return (
     <>
-      <aside className="hidden lg:flex w-[220px] flex-shrink-0 flex-col bg-nexus-depth border-r border-white/[0.06]">
-        <div className="p-6 pb-4 flex items-center">
+      <aside className="hidden lg:flex w-[210px] flex-shrink-0 flex-col bg-[#080C14] border-r border-white/[0.06]">
+        <div className="p-5 pb-4 flex items-center">
           <NexusLogo />
           <div className="ml-2.5">
-            <div className="font-display font-bold text-white text-lg tracking-wider leading-none">NEXUS</div>
-            <div className="font-display text-[9px] text-nexus-accent tracking-[0.25em] font-medium uppercase mt-1">
+            <div className="font-display font-bold text-white text-base tracking-wider leading-none">NEXUS</div>
+            <div className="font-mono text-[9px] text-nexus-accent tracking-[0.2em] font-medium uppercase mt-1">
               Trading Intel
             </div>
           </div>
@@ -87,34 +86,63 @@ export default function Sidebar() {
         <div className="border-t border-white/[0.06] mx-4" />
 
         <nav className="px-3 py-4 flex-1 space-y-1">
-          <div className="stat-label px-3 mb-2">Navigation</div>
+          <div className="stat-label px-3 mb-2">Platform</div>
           <NavLinks />
         </nav>
 
-        <div className="p-4 border-t border-white/[0.06]">
-          <div className="glass-card p-3">
-            <div className="flex items-center gap-2">
-              <span className={cn('w-2 h-2 rounded-full', STATUS_DOT[status])} />
-              <span className="text-xs font-display text-nexus-textPrimary">Agent {capitalize(status)}</span>
+        <div className="p-3 border-t border-white/[0.06] space-y-2">
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-body transition-all duration-150',
+                isActive
+                  ? 'bg-nexus-accent/[0.08] text-nexus-accent'
+                  : 'text-nexus-textMuted hover:text-nexus-textPrimary hover:bg-white/[0.03]'
+              )
+            }
+          >
+            <SettingsIcon size={14} className="flex-shrink-0" />
+            <span>Settings & Diagnostics</span>
+          </NavLink>
+
+          <div className="bg-nexus-surface border border-white/[0.06] rounded-xl p-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={cn('w-2 h-2 rounded-full', STATUS_DOT[status])} />
+                <span className="text-xs font-mono font-medium text-nexus-textPrimary">Agent {capitalize(status)}</span>
+              </div>
+              <span className="text-[9px] font-mono text-nexus-accent bg-nexus-accent/10 px-1.5 py-0.5 rounded border border-nexus-accent/20">
+                S2
+              </span>
             </div>
-            <div className="stat-label mt-0.5 text-nexus-accent">Bitget AI S2 · Track 3</div>
           </div>
         </div>
       </aside>
 
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-nexus-depth/95 backdrop-blur border-t border-white/[0.06] flex">
-        {NAV_ITEMS.map(({ path, icon: Icon }) => (
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#080C14]/95 backdrop-blur border-t border-white/[0.06] flex">
+        {PRIMARY_NAV.map(({ path, icon: Icon, name }) => (
           <NavLink
             key={path}
             to={path}
             end={path === '/'}
             className={({ isActive }) =>
-              cn('flex-1 flex items-center justify-center py-3', isActive ? 'text-nexus-accent' : 'text-nexus-textMuted')
+              cn('flex-1 flex flex-col items-center justify-center py-2.5 gap-1', isActive ? 'text-nexus-accent' : 'text-nexus-textMuted')
             }
           >
-            <Icon size={20} />
+            <Icon size={18} />
+            <span className="text-[9px] font-mono">{name}</span>
           </NavLink>
         ))}
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            cn('flex-1 flex flex-col items-center justify-center py-2.5 gap-1', isActive ? 'text-nexus-accent' : 'text-nexus-textMuted')
+          }
+        >
+          <SettingsIcon size={18} />
+          <span className="text-[9px] font-mono">Settings</span>
+        </NavLink>
       </nav>
     </>
   );

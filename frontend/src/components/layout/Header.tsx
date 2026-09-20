@@ -5,11 +5,11 @@ import { useRelativeTime } from '../../hooks/useRelativeTime';
 import { formatPrice, formatPct } from '../../lib/utils';
 
 const PAGE_TITLES: Record<string, string> = {
+  '/': 'AI Decision Cockpit',
+  '/intelligence': 'Market Intelligence Terminal',
+  '/performance': 'Agent & Executions',
   '/stress-test': '7×24 Pre-Trade Stress Simulator',
-  '/': 'Trading Desk & Signals',
-  '/intelligence': 'Market Intelligence',
-  '/performance': 'Performance & Audit',
-  '/settings': 'System Settings',
+  '/settings': 'Settings & Diagnostics',
 };
 
 export default function Header() {
@@ -19,11 +19,14 @@ export default function Header() {
   const lastUpdate = useNexusStore((s) => s.lastUpdate);
   const relativeTime = useRelativeTime(lastUpdate);
 
-  const title = PAGE_TITLES[location.pathname] || 'Dashboard';
+  const title = PAGE_TITLES[location.pathname] || 'NEXUS';
 
   return (
-    <header className="h-14 border-b border-white/[0.06] flex items-center px-6 gap-4 bg-nexus-depth/50 flex-shrink-0">
-      <span className="font-display font-semibold text-nexus-textPrimary text-sm">{title}</span>
+    <header className="h-14 border-b border-white/[0.06] flex items-center px-6 gap-4 bg-[#080C14]/80 backdrop-blur-md flex-shrink-0 z-20">
+      <div className="flex items-center gap-2">
+        <span className="font-display font-semibold text-nexus-textPrimary text-sm tracking-tight">{title}</span>
+        <span className="hidden sm:inline-block text-xs text-nexus-textMuted font-mono">/ BTCUSDT</span>
+      </div>
 
       <div className="flex-1 flex justify-center">
         <AnimatePresence mode="wait">

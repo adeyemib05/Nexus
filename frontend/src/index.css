@@ -5,31 +5,35 @@
 @layer base {
   html { font-family: 'Inter', sans-serif; }
   body {
-    background-color: #06090F;
-    color: #F1F5F9;
+    background-color: #07090E;
+    color: #F8FAFC;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  * { scrollbar-width: thin; scrollbar-color: #1e293b #06090F; }
+  * { scrollbar-width: thin; scrollbar-color: #1E293B #07090E; }
   *::-webkit-scrollbar { width: 5px; height: 5px; }
-  *::-webkit-scrollbar-track { background: #06090F; }
-  *::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+  *::-webkit-scrollbar-track { background: #07090E; }
+  *::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 3px; }
 }
 
 @layer components {
   .glass-card {
-    @apply bg-nexus-depth border border-white/[0.06] rounded-xl shadow-card;
+    @apply bg-nexus-surface border border-white/[0.07] rounded-xl shadow-card;
+  }
+  .glass-card-elevated {
+    @apply bg-nexus-elevated border border-white/[0.10] rounded-xl shadow-elevated;
+  }
+  .glass-card-interactive {
+    @apply bg-nexus-surface border border-white/[0.07] rounded-xl shadow-card transition-all duration-150 hover:bg-nexus-elevated hover:border-nexus-accent/30;
   }
   .stat-label {
-    @apply text-[10px] font-semibold uppercase tracking-[0.15em] 
-           text-nexus-textMuted font-display;
+    @apply text-[10px] font-semibold uppercase tracking-[0.14em] text-nexus-textMuted font-mono;
   }
   .price-value {
     @apply font-mono text-nexus-textPrimary tabular-nums;
   }
   .regime-badge {
-    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full 
-           text-[11px] font-bold font-display tracking-widest uppercase;
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[10px] font-semibold font-mono tracking-wider uppercase;
   }
   .nexus-divider {
     @apply flex items-center gap-3 my-4;

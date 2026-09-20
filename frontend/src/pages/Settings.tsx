@@ -80,11 +80,27 @@ export default function Settings() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-6"
+      transition={{ duration: 0.25 }}
+      className="space-y-6 max-w-7xl mx-auto"
     >
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-white/[0.06]">
+        <div>
+          <h2 className="font-display font-bold text-xl text-nexus-textPrimary tracking-tight">
+            Settings & Diagnostics
+          </h2>
+          <p className="text-xs font-mono text-nexus-textMuted mt-0.5">
+            Local simulation parameters, live service health, and historical backtesting engine
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Badge variant="default">NEXUS Core v1.0</Badge>
+        </div>
+      </div>
+
       <div className="grid lg:grid-cols-12 gap-6">
         {/* LEFT */}
         <div className="lg:col-span-7 space-y-4">
