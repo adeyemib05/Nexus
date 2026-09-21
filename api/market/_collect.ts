@@ -3,8 +3,8 @@
 // Collects 1m + 1h candles, calculates indicators (EMA/RSI/MACD), runs 5 signal engines.
 // Does NOT call Qwen/Groq. Does NOT execute trades. Purely market memory.
 //
-// Protection: validates X-Collect-Secret header against COLLECT_SECRET env var.
-// If COLLECT_SECRET is not set, the endpoint is open (suitable for initial testing only).
+// Protection: strictly validates X-Collect-Secret header against COLLECT_SECRET env var.
+// Returns HTTP 503 if COLLECT_SECRET is unset, and HTTP 401 if header is missing or invalid.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
@@ -409,7 +409,7 @@ export async function handleCollect(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Auth: strictly require X-Collect-Secret matching COLLECT_SECRET env var
+  // Auth: strictly require X-Collect-Secret matching COLLECT_SECRET env var (header-only)
   const collectSecret = process.env.COLLECT_SECRET;
   if (!collectSecret) {
     return res.status(503).json({
@@ -419,11 +419,20 @@ export async function handleCollect(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const provided = req.headers['x-collect-secret'] || (typeof req.query.secret === 'string' ? req.query.secret : undefined);
-  if (!provided || provided !== collectSecret) {
+  const rawHeader = req.headers['x-collect-secret'];
+  const provided = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+  if (!provided) {
     return res.status(401).json({
       success: false,
-      error: 'Unauthorized: Missing or invalid X-Collect-Secret header.',
+      error: 'Unauthorized: Missing X-Collect-Secret header.',
+      timestamp: Date.now(),
+    });
+  }
+
+  if (provided !== collectSecret) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Invalid X-Collect-Secret header.',
       timestamp: Date.now(),
     });
   }
