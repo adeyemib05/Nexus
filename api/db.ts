@@ -234,34 +234,43 @@ export async function initDb(): Promise<void> {
         // We run these separately and swallow errors for already-migrated databases
       ];
 
-      // Safe ALTER TABLE migrations for existing ai_decisions tables (add telemetry columns if missing)
+      // Safe ALTER TABLE migrations for existing tables (safe to run repeatedly)
       const migrationStatements = [
         'ALTER TABLE ai_decisions ADD COLUMN provider_attempted TEXT',
         'ALTER TABLE ai_decisions ADD COLUMN provider_success INTEGER DEFAULT 0',
         'ALTER TABLE ai_decisions ADD COLUMN provider_failure_reason TEXT',
         'ALTER TABLE ai_decisions ADD COLUMN latency_ms INTEGER',
         'ALTER TABLE ai_decisions ADD COLUMN decision_type TEXT DEFAULT \'model\'',
-        // risk_events schema change (drop old schema incompatibility handled by separate CREATE IF NOT EXISTS above)
+        'ALTER TABLE risk_events ADD COLUMN action TEXT',
+        'ALTER TABLE risk_events ADD COLUMN strategy TEXT',
+        'ALTER TABLE risk_events ADD COLUMN confidence REAL',
+        'ALTER TABLE risk_events ADD COLUMN block_reason TEXT',
+        'ALTER TABLE risk_events ADD COLUMN executed INTEGER DEFAULT 0',
+        'ALTER TABLE risk_events ADD COLUMN trade_id TEXT',
+        'ALTER TABLE risk_events ADD COLUMN fused_score REAL',
+        'ALTER TABLE risk_events ADD COLUMN regime TEXT',
+        'ALTER TABLE risk_events ADD COLUMN details_json TEXT',
       ];
 
-      try {
-        const requests = initStatements.map((sql) => ({
-          type: 'execute',
-          stmt: { sql },
-        }));
-        requests.push({ type: 'close' } as any);
-
-        await fetch(endpoint.url, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${endpoint.token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ requests }),
-        });
-      } catch (err) {
-        console.warn('[Turso initDb] Table creation notice:', err);
-        tableInitPromise = null;
+      // Execute each init statement independently so one error does not abort the others
+      for (const sql of initStatements) {
+        try {
+          await fetch(endpoint.url, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${endpoint.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests: [
+                { type: 'execute', stmt: { sql } },
+                { type: 'close' },
+              ],
+            }),
+          });
+        } catch (err) {
+          console.warn('[Turso initDb] Stmt notice:', err);
+        }
       }
 
       // Run migrations independently — each ALTER TABLE may fail on already-migrated columns, that is safe
@@ -283,7 +292,7 @@ export async function initDb(): Promise<void> {
             }),
           });
         } catch (_) {
-          // Migration already applied or not needed — safe to ignore
+          // Expected when column already exists in SQLite
         }
       }
     })();
@@ -347,6 +356,9 @@ export async function querySql<T = Record<string, any>>(sql: string, args: any[]
     if (!res.ok) return [];
 
     const data = await res.json();
+    if (data?.results?.[0]?.type === 'error' || data?.results?.[0]?.error) {
+      console.warn('[Turso querySql] Query error:', data.results[0].error, 'SQL:', sql);
+    }
     const result = data?.results?.[0]?.response?.result;
     if (!result) return [];
 
@@ -390,7 +402,13 @@ export async function executeSql(sql: string, args: any[] = []): Promise<boolean
       }),
     });
 
-    return res.ok;
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    if (data?.results?.[0]?.type === 'error' || data?.results?.[0]?.error) {
+      console.warn('[Turso executeSql] Statement error:', data.results[0].error, 'SQL:', sql);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.warn('[Turso executeSql] Error executing statement:', err);
     return false;
