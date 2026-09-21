@@ -207,19 +207,41 @@ export async function initDb(): Promise<void> {
           regime TEXT,
           executed INTEGER NOT NULL DEFAULT 0,
           block_reason TEXT,
-          trade_id TEXT
+          trade_id TEXT,
+          provider_attempted TEXT,
+          provider_success INTEGER DEFAULT 0,
+          provider_failure_reason TEXT,
+          latency_ms INTEGER,
+          decision_type TEXT DEFAULT 'model'
         )`,
         'CREATE INDEX IF NOT EXISTS idx_ai_decisions_lookup ON ai_decisions (symbol, timestamp DESC)',
         `CREATE TABLE IF NOT EXISTS risk_events (
           id TEXT PRIMARY KEY,
           timestamp INTEGER NOT NULL,
           symbol TEXT NOT NULL,
-          event_type TEXT NOT NULL,
-          severity TEXT NOT NULL,
-          description TEXT NOT NULL,
+          action TEXT NOT NULL,
+          strategy TEXT,
+          confidence REAL,
+          block_reason TEXT NOT NULL,
+          executed INTEGER NOT NULL DEFAULT 0,
+          trade_id TEXT,
+          fused_score REAL,
+          regime TEXT,
           details_json TEXT
         )`,
         'CREATE INDEX IF NOT EXISTS idx_risk_events_lookup ON risk_events (timestamp DESC)',
+        // Safe additive migrations for existing deployments (SQLite ignores duplicate columns on IF NOT EXISTS)
+        // We run these separately and swallow errors for already-migrated databases
+      ];
+
+      // Safe ALTER TABLE migrations for existing ai_decisions tables (add telemetry columns if missing)
+      const migrationStatements = [
+        'ALTER TABLE ai_decisions ADD COLUMN provider_attempted TEXT',
+        'ALTER TABLE ai_decisions ADD COLUMN provider_success INTEGER DEFAULT 0',
+        'ALTER TABLE ai_decisions ADD COLUMN provider_failure_reason TEXT',
+        'ALTER TABLE ai_decisions ADD COLUMN latency_ms INTEGER',
+        'ALTER TABLE ai_decisions ADD COLUMN decision_type TEXT DEFAULT \'model\'',
+        // risk_events schema change (drop old schema incompatibility handled by separate CREATE IF NOT EXISTS above)
       ];
 
       try {
@@ -240,6 +262,29 @@ export async function initDb(): Promise<void> {
       } catch (err) {
         console.warn('[Turso initDb] Table creation notice:', err);
         tableInitPromise = null;
+      }
+
+      // Run migrations independently — each ALTER TABLE may fail on already-migrated columns, that is safe
+      for (const migSql of migrationStatements) {
+        try {
+          const endpoint2 = getEndpoint();
+          if (!endpoint2) break;
+          await fetch(endpoint2.url, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${endpoint2.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests: [
+                { type: 'execute', stmt: { sql: migSql } },
+                { type: 'close' },
+              ],
+            }),
+          });
+        } catch (_) {
+          // Migration already applied or not needed — safe to ignore
+        }
       }
     })();
   }
@@ -611,12 +656,20 @@ export interface HistoricalAiDecision {
   executed: boolean;
   blockReason?: string | null;
   tradeId?: string | null;
+  // Provider telemetry
+  providerAttempted?: string | null;
+  providerSuccess?: boolean;
+  providerFailureReason?: string | null;
+  latencyMs?: number | null;
+  decisionType?: 'model' | 'failsafe_hold'; // 'model' = genuine AI inference, 'failsafe_hold' = AI failure
 }
 
 export async function saveHistoricalAiDecision(data: HistoricalAiDecision): Promise<boolean> {
   const sql = `INSERT OR REPLACE INTO ai_decisions
-    (id, timestamp, symbol, market_price, action, confidence, strategy, reasoning, provider, fused_score, regime, executed, block_reason, trade_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (id, timestamp, symbol, market_price, action, confidence, strategy, reasoning, provider,
+     fused_score, regime, executed, block_reason, trade_id,
+     provider_attempted, provider_success, provider_failure_reason, latency_ms, decision_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   const args = [
     data.id,
     data.timestamp,
@@ -627,11 +680,16 @@ export async function saveHistoricalAiDecision(data: HistoricalAiDecision): Prom
     data.strategy,
     data.reasoning,
     data.provider || null,
-    data.fusedScore || null,
+    data.fusedScore ?? null,
     data.regime || null,
     data.executed ? 1 : 0,
     data.blockReason || null,
     data.tradeId || null,
+    data.providerAttempted || null,
+    data.providerSuccess ? 1 : 0,
+    data.providerFailureReason || null,
+    data.latencyMs ?? null,
+    data.decisionType || 'model',
   ];
   return executeSql(sql, args);
 }
@@ -644,7 +702,9 @@ export async function getHistoricalAiDecisions(
 ): Promise<HistoricalAiDecision[]> {
   const safeLimit = Math.min(Math.max(limit, 1), 200);
   let sql = `SELECT id, timestamp, symbol, market_price as marketPrice, action, confidence, strategy, reasoning,
-    provider, fused_score as fusedScore, regime, executed, block_reason as blockReason, trade_id as tradeId
+    provider, fused_score as fusedScore, regime, executed, block_reason as blockReason, trade_id as tradeId,
+    provider_attempted as providerAttempted, provider_success as providerSuccess,
+    provider_failure_reason as providerFailureReason, latency_ms as latencyMs, decision_type as decisionType
     FROM ai_decisions WHERE symbol = ?`;
   const args: any[] = [symbol];
 
@@ -664,8 +724,87 @@ export async function getHistoricalAiDecisions(
   return rows.map((r) => ({
     ...r,
     executed: Boolean(r.executed),
+    providerSuccess: Boolean(r.providerSuccess),
   })).reverse();
 }
+
+// ── RISK EVENTS ───────────────────────────────────────────────────────────────
+
+export interface HistoricalRiskEvent {
+  id: string;
+  timestamp: number;
+  symbol: string;
+  action: string;           // The AI action that was blocked (BUY/SELL/HOLD)
+  strategy?: string | null;
+  confidence?: number | null;
+  blockReason: string;      // Why execution was blocked
+  executed: boolean;        // Always false for risk_events (they are non-executed)
+  tradeId?: string | null;
+  fusedScore?: number | null;
+  regime?: string | null;
+  details?: Record<string, any> | null;
+}
+
+export async function saveRiskEvent(data: HistoricalRiskEvent): Promise<boolean> {
+  const sql = `INSERT OR REPLACE INTO risk_events
+    (id, timestamp, symbol, action, strategy, confidence, block_reason, executed, trade_id, fused_score, regime, details_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const args = [
+    data.id,
+    data.timestamp,
+    data.symbol,
+    data.action,
+    data.strategy || null,
+    data.confidence ?? null,
+    data.blockReason,
+    data.executed ? 1 : 0,
+    data.tradeId || null,
+    data.fusedScore ?? null,
+    data.regime || null,
+    data.details ? JSON.stringify(data.details) : null,
+  ];
+  return executeSql(sql, args);
+}
+
+export async function getHistoricalRiskEvents(
+  symbol = 'BTCUSDT',
+  limit = 50,
+  from?: number,
+  to?: number
+): Promise<HistoricalRiskEvent[]> {
+  const safeLimit = Math.min(Math.max(limit, 1), 200);
+  let sql = `SELECT id, timestamp, symbol, action, strategy, confidence, block_reason as blockReason,
+    executed, trade_id as tradeId, fused_score as fusedScore, regime, details_json as detailsJson
+    FROM risk_events WHERE symbol = ?`;
+  const args: any[] = [symbol];
+
+  if (from) {
+    sql += ' AND timestamp >= ?';
+    args.push(from);
+  }
+  if (to) {
+    sql += ' AND timestamp <= ?';
+    args.push(to);
+  }
+
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  args.push(safeLimit);
+
+  const rows = await querySql<any>(sql, args);
+  return rows.map((r) => ({
+    ...r,
+    executed: Boolean(r.executed),
+    details: r.detailsJson ? JSON.parse(r.detailsJson) : null,
+  })).reverse();
+}
+
+// ── CONVENIENCE ALIASES (backward compatibility) ──────────────────────────────
+
+/** Alias: same as getHistoricalSignals — used by api/signals/index.ts */
+export const getSignalsHistory = getHistoricalSignals;
+
+/** Alias: same as saveCandles — used by api/market/index.ts */
+export const insertMarketCandles = saveCandles;
 
 export async function kvGet(key: string): Promise<any | null> {
   const endpoint = getEndpoint();

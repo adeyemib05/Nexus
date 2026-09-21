@@ -66,6 +66,10 @@
       "destination": "/api/agent/state?sub=history"
     },
     {
+      "source": "/api/risk/history",
+      "destination": "/api/agent/state?sub=risk-history"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

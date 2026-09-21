@@ -6,6 +6,7 @@ import {
   saveIndicatorSnapshot,
   saveSignalSnapshot,
   saveHistoricalAiDecision,
+  saveRiskEvent,
   getDefaultHistoricalTrades,
   computeDetailedPerformance,
   type Trade,
@@ -889,7 +890,8 @@ export interface AiTradingDecision {
 }
 
 export interface AiDecisionResult extends AiTradingDecision {
-  provider: 'qwen-3.8-max' | 'groq-qwen-32b' | 'fallback_hold';
+  // Canonical provider id format: 'qwen-3.8-max' | 'groq:qwen/qwen3.8-27b' | 'fallback_hold'
+  provider: 'qwen-3.8-max' | 'groq:qwen/qwen3.8-27b' | 'fallback_hold';
   providerAttempted?: string;
   providerSuccess?: boolean;
   providerFailureReason?: string;
@@ -1071,10 +1073,10 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
     providerFailureReason = 'Qwen API key unconfigured';
   }
 
-  // 2. Secondary: Groq LPU Engine
+  // 2. Secondary: Groq LPU Engine (groq:qwen/qwen3.8-27b)
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey && !groqKey.includes('YOUR')) {
-    providerAttempted = 'groq-qwen-32b';
+    providerAttempted = 'groq:qwen/qwen3.8-27b';
     const groqStart = Date.now();
     try {
       const controller = new AbortController();
@@ -1106,8 +1108,8 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
         if (parsed) {
           return {
             ...parsed,
-            provider: 'groq-qwen-32b',
-            providerAttempted: 'groq-qwen-32b',
+            provider: 'groq:qwen/qwen3.8-27b',
+            providerAttempted: 'groq:qwen/qwen3.8-27b',
             providerSuccess: true,
             latencyMs: Date.now() - groqStart,
           };
@@ -1493,7 +1495,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
     );
 
-    // Ingest historical AI decision
+    // Ingest historical AI decision (with full provider telemetry)
+    // decisionType: 'model' = genuine model inference, 'failsafe_hold' = AI failure/fallback
+    const decisionType: 'model' | 'failsafe_hold' = aiDecision.provider === 'fallback_hold' ? 'failsafe_hold' : 'model';
     historicalTasks.push(
       saveHistoricalAiDecision({
         id: `ai_${now}_${nextCycleCount}`,
@@ -1510,8 +1514,58 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         executed: !!newTrade,
         blockReason: blockReason,
         tradeId: newTrade?.id || null,
+        providerAttempted: aiDecision.providerAttempted || aiDecision.provider,
+        providerSuccess: aiDecision.providerSuccess ?? (aiDecision.provider !== 'fallback_hold'),
+        providerFailureReason: aiDecision.providerFailureReason || null,
+        latencyMs: aiDecision.latencyMs || null,
+        decisionType,
       })
     );
+
+    // Persist risk_events when execution was blocked (AI decision not acted upon)
+    if (blockReason && !aiDecision.failed) {
+      // Genuine AI decision that was blocked by guardrails (e.g. duplicate position, cooldown)
+      historicalTasks.push(
+        saveRiskEvent({
+          id: `risk_${now}_${nextCycleCount}`,
+          timestamp: now,
+          symbol: 'BTCUSDT',
+          action: aiDecision.action,
+          strategy: aiDecision.strategy,
+          confidence: aiDecision.confidence,
+          blockReason,
+          executed: false,
+          fusedScore: regime.fusedScore,
+          regime: regime.regime,
+          details: {
+            provider: aiDecision.provider,
+            reasoning: aiDecision.reasoning,
+            cycleCount: nextCycleCount,
+          },
+        })
+      );
+    } else if (aiDecision.failed && aiDecision.action === 'HOLD') {
+      // Fail-safe hold: AI inference failed entirely
+      historicalTasks.push(
+        saveRiskEvent({
+          id: `risk_fshold_${now}_${nextCycleCount}`,
+          timestamp: now,
+          symbol: 'BTCUSDT',
+          action: 'HOLD',
+          strategy: 'capital_protection',
+          confidence: aiDecision.confidence,
+          blockReason: `Fail-safe hold: ${aiDecision.failureReason || aiDecision.providerFailureReason || 'AI provider unavailable'}`,
+          executed: false,
+          fusedScore: regime.fusedScore,
+          regime: regime.regime,
+          details: {
+            providerAttempted: aiDecision.providerAttempted,
+            providerFailureReason: aiDecision.providerFailureReason,
+            cycleCount: nextCycleCount,
+          },
+        })
+      );
+    }
 
     await Promise.allSettled(historicalTasks);
 
