@@ -409,13 +409,23 @@ export async function handleCollect(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Auth: validate X-Collect-Secret if env var is set
+  // Auth: strictly require X-Collect-Secret matching COLLECT_SECRET env var
   const collectSecret = process.env.COLLECT_SECRET;
-  if (collectSecret) {
-    const provided = req.headers['x-collect-secret'];
-    if (!provided || provided !== collectSecret) {
-      return res.status(401).json({ success: false, error: 'Unauthorized', timestamp: Date.now() });
-    }
+  if (!collectSecret) {
+    return res.status(503).json({
+      success: false,
+      error: 'COLLECT_SECRET is not configured on server. Please add COLLECT_SECRET to Vercel environment variables.',
+      timestamp: Date.now(),
+    });
+  }
+
+  const provided = req.headers['x-collect-secret'] || (typeof req.query.secret === 'string' ? req.query.secret : undefined);
+  if (!provided || provided !== collectSecret) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Missing or invalid X-Collect-Secret header.',
+      timestamp: Date.now(),
+    });
   }
 
   const now = Date.now();
@@ -446,16 +456,22 @@ export async function handleCollect(req: VercelRequest, res: VercelResponse) {
       candlesWritten1h = rows.length;
     }
 
-    // 4. Calculate indicators from 1m candles (need >= 26 for MACD)
+    // 4. Resolve canonical market candle timestamp (latest candle timestamp e.g. 1790001900000)
+    const latestCandle = candles1m.length > 0 ? candles1m[candles1m.length - 1] : null;
+    const observationTimestamp = latestCandle ? latestCandle.timestamp : Math.floor(now / 60000) * 60000;
+
+    // 5. Calculate indicators from 1m candles (need >= 26 for MACD)
     let indicatorStored = false;
     const candlesForIndicators = candles1m.length >= 26 ? candles1m : candles1h;
 
     if (candlesForIndicators.length >= 26) {
       const tech = computeTechnicalScore(candlesForIndicators);
       await saveIndicatorSnapshot({
+        id: `ind_${symbol}_1m_${observationTimestamp}`,
         symbol,
-        timeframe: candles1m.length >= 26 ? '1m' : '1h',
-        timestamp: now,
+        timeframe: '1m',
+        timestamp: observationTimestamp,
+        collectedAt: now,
         rsi: tech.rsi,
         ema20: tech.ema20,
         ema50: tech.ema50,
@@ -471,7 +487,7 @@ export async function handleCollect(req: VercelRequest, res: VercelResponse) {
       indicatorStored = true;
     }
 
-    // 5. Compute all 5 signal engines (no LLM — async I/O only for sentiment/onchain/news)
+    // 6. Compute all 5 signal engines (no LLM — async I/O only for sentiment/onchain/news)
     const candlesForSignals = candles1m.length >= 25 ? candles1m : candles1h;
     let signalStored = false;
 
@@ -496,7 +512,9 @@ export async function handleCollect(req: VercelRequest, res: VercelResponse) {
       const { fusedScore, regime, regimeConfidence } = fuseScores(allScores);
 
       const snapshot: HistoricalSignalSnapshot = {
-        timestamp: now,
+        id: `sig_${symbol}_${observationTimestamp}`,
+        timestamp: observationTimestamp,
+        collectedAt: now,
         symbol,
         technical: { score: techSignal.score, confidence: techSignal.confidence, strength: techSignal.strength },
         liquidity: { score: liqSignal.score, confidence: liqSignal.confidence, strength: liqSignal.strength },
@@ -522,7 +540,8 @@ export async function handleCollect(req: VercelRequest, res: VercelResponse) {
       success: true,
       collected: true,
       symbol,
-      timestamp: now,
+      timestamp: observationTimestamp,
+      collectedAt: now,
       candlesWritten1m,
       candlesWritten1h,
       indicatorStored,

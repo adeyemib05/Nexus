@@ -250,6 +250,8 @@ export async function initDb(): Promise<void> {
         'ALTER TABLE risk_events ADD COLUMN fused_score REAL',
         'ALTER TABLE risk_events ADD COLUMN regime TEXT',
         'ALTER TABLE risk_events ADD COLUMN details_json TEXT',
+        'ALTER TABLE indicator_snapshots ADD COLUMN collected_at INTEGER',
+        'ALTER TABLE signal_snapshots ADD COLUMN collected_at INTEGER',
       ];
 
       // Execute each init statement independently so one error does not abort the others
@@ -501,6 +503,7 @@ export interface HistoricalIndicatorSnapshot {
   symbol: string;
   timeframe: string;
   timestamp: number;
+  collectedAt?: number;
   rsi: number;
   ema20: number;
   ema50: number;
@@ -513,13 +516,14 @@ export interface HistoricalIndicatorSnapshot {
 export async function saveIndicatorSnapshot(data: HistoricalIndicatorSnapshot): Promise<boolean> {
   const id = data.id || `ind_${data.symbol}_${data.timeframe}_${data.timestamp}`;
   const sql = `INSERT OR REPLACE INTO indicator_snapshots
-    (id, symbol, timeframe, timestamp, rsi, ema20, ema50, macd, macd_signal, macd_histogram, indicators_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (id, symbol, timeframe, timestamp, collected_at, rsi, ema20, ema50, macd, macd_signal, macd_histogram, indicators_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   const args = [
     id,
     data.symbol,
     data.timeframe,
     data.timestamp,
+    data.collectedAt || Date.now(),
     data.rsi,
     data.ema20,
     data.ema50,
@@ -539,7 +543,7 @@ export async function getHistoricalIndicators(
   to?: number
 ): Promise<HistoricalIndicatorSnapshot[]> {
   const safeLimit = Math.min(Math.max(limit, 1), 200);
-  let sql = 'SELECT id, symbol, timeframe, timestamp, rsi, ema20, ema50, macd, macd_signal as macdSignal, macd_histogram as macdHistogram, indicators_json as indicatorsJson FROM indicator_snapshots WHERE symbol = ? AND timeframe = ?';
+  let sql = 'SELECT id, symbol, timeframe, timestamp, collected_at as collectedAt, rsi, ema20, ema50, macd, macd_signal as macdSignal, macd_histogram as macdHistogram, indicators_json as indicatorsJson FROM indicator_snapshots WHERE symbol = ? AND timeframe = ?';
   const args: any[] = [symbol, timeframe];
 
   if (from) {
@@ -564,6 +568,7 @@ export async function getHistoricalIndicators(
 export interface HistoricalSignalSnapshot {
   id?: string;
   timestamp: number;
+  collectedAt?: number;
   symbol: string;
   technical: { score: number; confidence: number; strength: string };
   liquidity: { score: number; confidence: number; strength: string };
@@ -579,16 +584,17 @@ export interface HistoricalSignalSnapshot {
 export async function saveSignalSnapshot(data: HistoricalSignalSnapshot): Promise<boolean> {
   const id = data.id || `sig_${data.symbol}_${data.timestamp}`;
   const sql = `INSERT OR REPLACE INTO signal_snapshots
-    (id, timestamp, symbol, technical_score, technical_confidence, technical_strength,
+    (id, timestamp, collected_at, symbol, technical_score, technical_confidence, technical_strength,
      liquidity_score, liquidity_confidence, liquidity_strength,
      sentiment_score, sentiment_confidence, sentiment_strength,
      onchain_score, onchain_confidence, onchain_strength,
      news_score, news_confidence, news_strength,
      fused_score, regime, regime_confidence, details_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   const args = [
     id,
     data.timestamp,
+    data.collectedAt || Date.now(),
     data.symbol,
     data.technical.score,
     data.technical.confidence,
@@ -620,7 +626,7 @@ export async function getHistoricalSignals(
   to?: number
 ): Promise<HistoricalSignalSnapshot[]> {
   const safeLimit = Math.min(Math.max(limit, 1), 200);
-  let sql = `SELECT id, timestamp, symbol,
+  let sql = `SELECT id, timestamp, collected_at as collectedAt, symbol,
     technical_score as tech_s, technical_confidence as tech_c, technical_strength as tech_st,
     liquidity_score as liq_s, liquidity_confidence as liq_c, liquidity_strength as liq_st,
     sentiment_score as sent_s, sentiment_confidence as sent_c, sentiment_strength as sent_st,
@@ -646,6 +652,7 @@ export async function getHistoricalSignals(
   return rows.map((r) => ({
     id: r.id,
     timestamp: r.timestamp,
+    collectedAt: r.collectedAt,
     symbol: r.symbol,
     technical: { score: r.tech_s, confidence: r.tech_c, strength: r.tech_st },
     liquidity: { score: r.liq_s, confidence: r.liq_c, strength: r.liq_st },

@@ -1299,7 +1299,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 3. Fetch live market data from Bitget (1m candles for precision + 1h candles for macro trend)
     const [ticker, candles1m, candles1h] = await Promise.all([
       fetchTicker('BTCUSDT'),
-      fetchCandles('BTCUSDT', '1m', 100),
+      fetchCandles('BTCUSDT', '1min', 100),
       fetchCandles('BTCUSDT', '1h', 100),
     ]);
     const candles = candles1m.length >= 25 ? candles1m : candles1h;
@@ -1454,13 +1454,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
     }
 
-    // Ingest indicator snapshot
+    // Canonical observation timestamp from latest 1m candle (or minute boundary fallback)
+    const latestCandle = candles1m && candles1m.length > 0 ? candles1m[candles1m.length - 1] : null;
+    const observationTimestamp = latestCandle ? latestCandle.timestamp : Math.floor(now / 60000) * 60000;
+
+    // Ingest indicator snapshot aligned to canonical observation timestamp
     const techDetails = technical.details || {};
     historicalTasks.push(
       saveIndicatorSnapshot({
+        id: `ind_BTCUSDT_1m_${observationTimestamp}`,
         symbol: 'BTCUSDT',
         timeframe: '1m',
-        timestamp: now,
+        timestamp: observationTimestamp,
+        collectedAt: now,
         rsi: typeof techDetails.rsi === 'number' ? techDetails.rsi : 50,
         ema20: typeof techDetails.ema20 === 'number' ? techDetails.ema20 : currentPrice,
         ema50: typeof techDetails.ema50 === 'number' ? techDetails.ema50 : currentPrice,
@@ -1473,10 +1479,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
     );
 
-    // Ingest 5-engine signal snapshot
+    // Ingest 5-engine signal snapshot aligned to canonical observation timestamp
     historicalTasks.push(
       saveSignalSnapshot({
-        timestamp: now,
+        id: `sig_BTCUSDT_${observationTimestamp}`,
+        timestamp: observationTimestamp,
+        collectedAt: now,
         symbol: 'BTCUSDT',
         technical: { score: technical.score, confidence: technical.confidence, strength: technical.strength },
         liquidity: { score: macro.score, confidence: macro.confidence, strength: macro.strength },
