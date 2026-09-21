@@ -1,5 +1,5 @@
-// api/market/collect.ts
-// Market Data Collection Endpoint — Called by cron-job.org every minute
+// api/market/_collect.ts
+// Market Data Collection Engine — Called by cron-job.org every minute via /api/market/collect
 // Collects 1m + 1h candles, calculates indicators (EMA/RSI/MACD), runs 5 signal engines.
 // Does NOT call Qwen/Groq. Does NOT execute trades. Purely market memory.
 //
@@ -337,13 +337,11 @@ async function computeNewsScore(): Promise<{ score: number; confidence: number; 
 
     const xml = await r.text();
     const titleRegex = /<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/g;
-    const now = Date.now();
     let pos = 0;
     let neg = 0;
     let neutral = 0;
     let total = 0;
     let m: RegExpExecArray | null;
-    const MAX_AGE = 48 * 60 * 60 * 1000;
 
     while ((m = titleRegex.exec(xml)) !== null && total < 15) {
       const title = m[1].trim();
@@ -404,7 +402,7 @@ function fuseScores(scores: Record<string, { score: number; confidence: number }
 
 // ── HANDLER ────────────────────────────────────────────────────────────────────
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handleCollect(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Collect-Secret');

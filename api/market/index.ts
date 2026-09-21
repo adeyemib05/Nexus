@@ -4,15 +4,21 @@ import {
   insertMarketCandles,
   getHistoricalIndicators,
 } from '../db';
+import { handleCollect } from './_collect';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Collect-Secret');
   res.setHeader('Cache-Control', 's-maxage=2, stale-while-revalidate=5');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
+  }
+
+  const isCollect = req.url?.includes('/collect') || req.query.sub === 'collect';
+  if (isCollect) {
+    return handleCollect(req, res);
   }
 
   if (req.method !== 'GET') {

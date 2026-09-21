@@ -5,7 +5,7 @@
     "api/agent/cycle.ts": {
       "maxDuration": 25
     },
-    "api/market/collect.ts": {
+    "api/market/index.ts": {
       "maxDuration": 25
     },
     "api/stress-test/simulate.ts": {
@@ -59,6 +59,10 @@
     {
       "source": "/api/market/indicators",
       "destination": "/api/market?sub=indicators"
+    },
+    {
+      "source": "/api/market/collect",
+      "destination": "/api/market?sub=collect"
     },
     {
       "source": "/api/signals/history",
