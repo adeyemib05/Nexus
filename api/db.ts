@@ -1374,6 +1374,58 @@ export function computeDetailedPerformance(
   };
 }
 
-export default function handler(req: any, res: any) {
-  res.status(200).json({ status: 'ok', service: 'Turso DB HTTP Pipeline', timestamp: Date.now() });
+export default async function handler(req: any, res: any) {
+  try {
+    let fixApplied = false;
+    let fixError: string | null = null;
+
+    if (req.query?.fix === 'risk_events') {
+      try {
+        await executeSql('DROP TABLE IF EXISTS risk_events');
+        await executeSql(`CREATE TABLE risk_events (
+          id TEXT PRIMARY KEY,
+          timestamp INTEGER NOT NULL,
+          symbol TEXT NOT NULL,
+          action TEXT NOT NULL,
+          strategy TEXT,
+          confidence REAL,
+          block_reason TEXT NOT NULL,
+          executed INTEGER NOT NULL DEFAULT 0,
+          trade_id TEXT,
+          fused_score REAL,
+          regime TEXT,
+          details_json TEXT
+        )`);
+        await executeSql('CREATE INDEX IF NOT EXISTS idx_risk_events_lookup ON risk_events (timestamp DESC)');
+        
+        // Also insert a test risk event to verify write functionality immediately
+        const testId = `risk_init_${Date.now()}`;
+        await executeSql(`INSERT INTO risk_events 
+          (id, timestamp, symbol, action, strategy, confidence, block_reason, executed, trade_id, fused_score, regime, details_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [testId, Date.now(), 'BTCUSDT', 'HOLD', 'capital_protection', 50, 'Initialization verification event', 0, null, 0.35, 'bullish_trend', '{"init":true}']
+        );
+        fixApplied = true;
+      } catch (err: any) {
+        fixError = err.message;
+      }
+    }
+
+    const tableInfo = await querySql('PRAGMA table_info(risk_events)');
+    const countRes = await querySql('SELECT count(*) as count FROM risk_events');
+    const sampleRows = await querySql('SELECT * FROM risk_events ORDER BY timestamp DESC LIMIT 5');
+
+    res.status(200).json({
+      status: 'ok',
+      service: 'Turso DB HTTP Pipeline',
+      fixApplied,
+      fixError,
+      tableInfo,
+      countRes,
+      sampleRows,
+      timestamp: Date.now(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ status: 'error', error: err.message, timestamp: Date.now() });
+  }
 }
