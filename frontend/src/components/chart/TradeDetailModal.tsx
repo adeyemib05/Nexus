@@ -1,11 +1,11 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import type { Trade } from '../../types';
+import { X, ArrowUpRight, ArrowDownRight, FlaskConical } from 'lucide-react';
+import type { Trade, BacktestTradeAnnotation } from '../../types';
 import { REGIME_CONFIG } from '../../types';
 import { formatPrice, formatPct, formatTimestamp } from '../../lib/utils';
 
 interface TradeDetailModalProps {
-  trade: Trade | null;
+  trade: Trade | BacktestTradeAnnotation | null;
   isOpen: boolean;
   onClose: () => void;
   onViewAiRationale?: (tradeId: string) => void;
@@ -14,16 +14,27 @@ interface TradeDetailModalProps {
 export default function TradeDetailModal({ trade, isOpen, onClose, onViewAiRationale }: TradeDetailModalProps) {
   if (!trade) return null;
 
+  const isBacktest = (trade as any).source === 'backtest';
   const isLong = trade.side === 'long';
-  const isClosed = trade.status === 'closed';
-  const pnl = trade.pnl || 0;
-  const pnlPct = trade.pnlPct || 0;
-  const regimeConfig = REGIME_CONFIG[trade.regimeAtEntry] || REGIME_CONFIG.uncertain;
+  const isClosed = isBacktest ? true : (trade as Trade).status === 'closed';
+  const pnl = trade.pnl ?? 0;
+  const pnlPct = trade.pnlPct ?? 0;
+  const regimeAtEntry = isBacktest
+    ? (trade as BacktestTradeAnnotation).regime
+    : (trade as Trade).regimeAtEntry;
+  const regimeConfig = REGIME_CONFIG[regimeAtEntry] || REGIME_CONFIG.uncertain;
+
+  const openedAt = isBacktest
+    ? (trade as BacktestTradeAnnotation).entryTimestamp
+    : (trade as Trade).openedAt;
+  const closedAt = isBacktest
+    ? (trade as BacktestTradeAnnotation).exitTimestamp
+    : (trade as Trade).closedAt;
 
   // Calculate duration if closed
   let durationStr = 'Active';
-  if (trade.closedAt && trade.openedAt) {
-    const minutes = Math.round((trade.closedAt - trade.openedAt) / (60 * 1000));
+  if (closedAt && openedAt) {
+    const minutes = Math.round((closedAt - openedAt) / (60 * 1000));
     if (minutes < 60) durationStr = `${minutes}m`;
     else durationStr = `${(minutes / 60).toFixed(1)}h`;
   }
@@ -52,6 +63,11 @@ export default function TradeDetailModal({ trade, isOpen, onClose, onViewAiRatio
                     <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-white/[0.05] text-nexus-textMuted border border-white/[0.08]">
                       {trade.id}
                     </span>
+                    {isBacktest && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-nexus-accent/15 text-nexus-accent border border-nexus-accent/30 flex items-center gap-1">
+                        <FlaskConical size={10} /> BACKTEST SIMULATION
+                      </span>
+                    )}
                   </div>
                   <span className="text-[11px] font-mono text-nexus-textMuted capitalize">
                     {trade.strategy.replace(/_/g, ' ')}
@@ -74,7 +90,7 @@ export default function TradeDetailModal({ trade, isOpen, onClose, onViewAiRatio
                 <div>
                   <span className="stat-label block mb-1">Status</span>
                   <span className={`text-xs font-mono font-bold uppercase ${isClosed ? 'text-nexus-textMuted' : 'text-nexus-bull'}`}>
-                    {trade.status}
+                    {isBacktest ? 'CLOSED (SIMULATED)' : (trade as Trade).status}
                   </span>
                 </div>
                 <div>
@@ -86,7 +102,7 @@ export default function TradeDetailModal({ trade, isOpen, onClose, onViewAiRatio
                 <div>
                   <span className="stat-label block mb-1">Return</span>
                   <span className={`text-sm font-mono font-bold ${pnlPct > 0 ? 'text-nexus-bull' : pnlPct < 0 ? 'text-nexus-bear' : 'text-nexus-textMuted'}`}>
-                    {formatPct(pnlPct)}
+                    {formatPct(pnlPct * (Math.abs(pnlPct) <= 1 ? 100 : 1))}
                   </span>
                 </div>
               </div>
@@ -97,7 +113,7 @@ export default function TradeDetailModal({ trade, isOpen, onClose, onViewAiRatio
                   <span className="text-nexus-textMuted">Entry Price:</span>
                   <span className="text-nexus-textPrimary font-semibold">{formatPrice(trade.entryPrice)}</span>
                 </div>
-                {trade.exitPrice && (
+                {trade.exitPrice !== undefined && trade.exitPrice > 0 && (
                   <div className="flex items-center justify-between">
                     <span className="text-nexus-textMuted">Exit Price:</span>
                     <span className="text-nexus-textPrimary font-semibold">{formatPrice(trade.exitPrice)}</span>
@@ -105,35 +121,55 @@ export default function TradeDetailModal({ trade, isOpen, onClose, onViewAiRatio
                 )}
                 <div className="flex items-center justify-between">
                   <span className="text-nexus-textMuted">Position Size:</span>
-                  <span className="text-nexus-textPrimary font-semibold">${trade.positionSizeUSD.toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-nexus-textMuted">Stop Loss / Take Profit:</span>
-                  <span className="text-nexus-textPrimary">
-                    {formatPrice(trade.stopLoss)} / {formatPrice(trade.takeProfit)}
+                  <span className="text-nexus-textPrimary font-semibold">
+                    {isBacktest
+                      ? 'UNAVAILABLE / NOT EXPORTED'
+                      : (trade as Trade).positionSizeUSD
+                      ? `$${(trade as Trade).positionSizeUSD.toLocaleString()}`
+                      : 'N/A'}
                   </span>
                 </div>
+                {!isBacktest && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-nexus-textMuted">Stop Loss / Take Profit:</span>
+                    <span className="text-nexus-textPrimary">
+                      {formatPrice((trade as Trade).stopLoss)} / {formatPrice((trade as Trade).takeProfit)}
+                    </span>
+                  </div>
+                )}
+                {isBacktest && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-nexus-textMuted">Stop Loss / Take Profit:</span>
+                    <span className="text-nexus-textMuted italic">
+                      UNAVAILABLE / NOT EXPORTED
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-nexus-textMuted">Trade Duration:</span>
                   <span className="text-nexus-textPrimary font-semibold">{durationStr}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-nexus-textMuted">Opened At:</span>
-                  <span className="text-nexus-textMuted">{formatTimestamp(trade.openedAt)}</span>
+                  <span className="text-nexus-textMuted">{openedAt ? formatTimestamp(openedAt) : 'N/A'}</span>
                 </div>
-                {trade.closedAt && (
+                {closedAt && (
                   <div className="flex items-center justify-between">
                     <span className="text-nexus-textMuted">Closed At:</span>
-                    <span className="text-nexus-textMuted">{formatTimestamp(trade.closedAt)}</span>
+                    <span className="text-nexus-textMuted">{formatTimestamp(closedAt)}</span>
                   </div>
                 )}
               </div>
 
-              {/* AI Thesis at Entry */}
+              {/* Rationale / Rule Details */}
               <div className="space-y-1.5">
-                <span className="stat-label">AI Rationale at Trade Inception</span>
+                <span className="stat-label">
+                  {isBacktest ? 'Algorithmic Strategy Execution' : 'AI Rationale at Trade Inception'}
+                </span>
                 <p className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06] text-xs font-mono text-nexus-textPrimary leading-relaxed">
-                  "{trade.explanation}"
+                  {isBacktest
+                    ? 'Track 2 Technical Signal Trigger: Systematic execution based on sliding-window technical rules (EMA20/50 + RSI). Autonomous LLM reasoning is not invoked during batch historical backtesting.'
+                    : `"${(trade as Trade).explanation}"`}
                 </p>
               </div>
 
@@ -141,14 +177,14 @@ export default function TradeDetailModal({ trade, isOpen, onClose, onViewAiRatio
               <div className="flex items-center justify-between p-3 rounded-lg bg-nexus-elevated border border-white/[0.06] text-xs font-mono">
                 <span className="text-nexus-textMuted">Regime at Entry:</span>
                 <span className="px-2 py-0.5 rounded text-[11px] font-semibold" style={{ backgroundColor: regimeConfig.bgColor, color: regimeConfig.color }}>
-                  {regimeConfig.label} ({trade.regimeConfidence}%)
+                  {regimeConfig.label} {isBacktest ? '(Rule-Based Classification)' : `(${(trade as Trade).regimeConfidence}%)`}
                 </span>
               </div>
             </div>
 
             {/* Footer */}
             <div className="p-4 border-t border-white/[0.08] bg-nexus-base/60 flex items-center justify-between">
-              {onViewAiRationale && (
+              {!isBacktest && onViewAiRationale && (
                 <button
                   onClick={() => {
                     onClose();

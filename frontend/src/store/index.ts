@@ -6,7 +6,9 @@ import type {
   Trade,
   PerformanceSnapshot,
   PriceTicker,
-  BacktestResult
+  BacktestResult,
+  HistoricalAiDecision,
+  HistoricalRiskEvent,
 } from '../types';
 
 interface NexusStore {
@@ -21,6 +23,8 @@ interface NexusStore {
   equityCurve: Array<{ timestamp: number; value: number }>;
   backtestResults: BacktestResult[];
   regimeHistory: RegimeReading[];
+  historicalAiDecisions: HistoricalAiDecision[];
+  historicalRiskEvents: HistoricalRiskEvent[];
 
   setAgentState: (state: AgentState | null) => void;
   setSignals: (signals: SignalReading[]) => void;
@@ -34,6 +38,8 @@ interface NexusStore {
   setEquityCurve: (equityCurve: Array<{ timestamp: number; value: number }>) => void;
   setBacktestResults: (results: BacktestResult[]) => void;
   setRegimeHistory: (history: RegimeReading[]) => void;
+  setHistoricalAiDecisions: (decisions: HistoricalAiDecision[]) => void;
+  setHistoricalRiskEvents: (events: HistoricalRiskEvent[]) => void;
 }
 
 export const useNexusStore = create<NexusStore>((set) => ({
@@ -48,6 +54,8 @@ export const useNexusStore = create<NexusStore>((set) => ({
   equityCurve: [],
   backtestResults: [],
   regimeHistory: [],
+  historicalAiDecisions: [],
+  historicalRiskEvents: [],
 
   setAgentState: (agentState) => set({ agentState }),
   setSignals: (signals) => set({ signals }),
@@ -61,4 +69,6 @@ export const useNexusStore = create<NexusStore>((set) => ({
   setEquityCurve: (equityCurve) => set({ equityCurve }),
   setBacktestResults: (backtestResults) => set({ backtestResults }),
   setRegimeHistory: (regimeHistory) => set({ regimeHistory }),
+  setHistoricalAiDecisions: (historicalAiDecisions) => set({ historicalAiDecisions }),
+  setHistoricalRiskEvents: (historicalRiskEvents) => set({ historicalRiskEvents }),
 }));

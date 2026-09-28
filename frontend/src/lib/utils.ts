@@ -53,3 +53,27 @@ export function scoreToStrength(score: number): SignalStrength {
 export function clamp(val: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, val));
 }
+
+/**
+ * Normalizes values returned from SQLite / Turso HTTP drivers,
+ * specifically converting `{ type: "null" }` or empty strings to `null`.
+ * Safe unknown-object check without any type assertions.
+ */
+export function normalizeNullableString(val: unknown): string | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+    const record = val as Record<string, unknown>;
+    if (record.type === 'null') {
+      return null;
+    }
+  }
+  return null;
+}
+
+export const normalizeTradeId = normalizeNullableString;
+
+

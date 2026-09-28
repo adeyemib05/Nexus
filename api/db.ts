@@ -461,14 +461,99 @@ export interface HistoricalCandle {
   volume: number;
 }
 
-export async function saveCandles(candles: HistoricalCandle[]): Promise<boolean> {
-  if (!candles || candles.length === 0) return true;
-  const stmts = candles.map((c) => ({
+export async function getLatestCandleTimestamp(
+  symbol = 'BTCUSDT',
+  timeframe = '1m'
+): Promise<number | null> {
+  const sql = 'SELECT MAX(timestamp) as maxTs FROM market_candles WHERE symbol = ? AND timeframe = ?';
+  const rows = await querySql<{ maxTs: number | null }>(sql, [symbol, timeframe]);
+  if (rows.length > 0 && typeof rows[0].maxTs === 'number') {
+    return rows[0].maxTs;
+  }
+  return null;
+}
+
+export interface SaveCandlesResult {
+  success: boolean;
+  savedCount: number;
+  skippedCount: number;
+}
+
+export async function saveCandlesWithStats(
+  candles: HistoricalCandle[],
+  options: { deltaOnly?: boolean } = { deltaOnly: true }
+): Promise<SaveCandlesResult> {
+  if (!candles || candles.length === 0) {
+    return { success: true, savedCount: 0, skippedCount: 0 };
+  }
+
+  let candlesToSave = candles;
+  let skippedCount = 0;
+
+  if (options.deltaOnly !== false) {
+    // Group candles by symbol and timeframe
+    const groups = new Map<string, HistoricalCandle[]>();
+    for (const c of candles) {
+      const key = `${c.symbol}_${c.timeframe}`;
+      const list = groups.get(key) || [];
+      list.push(c);
+      groups.set(key, list);
+    }
+
+    const filtered: HistoricalCandle[] = [];
+    for (const groupCandles of groups.values()) {
+      const { symbol, timeframe } = groupCandles[0];
+      const latestTs = await getLatestCandleTimestamp(symbol, timeframe);
+
+      if (latestTs === null) {
+        // Table is empty for this symbol/timeframe — save all for initial bootstrap
+        filtered.push(...groupCandles);
+      } else {
+        // Only persist newly observed candle timestamps strictly greater than latest stored
+        const newCandles = groupCandles.filter((c) => c.timestamp > latestTs);
+        skippedCount += (groupCandles.length - newCandles.length);
+        filtered.push(...newCandles);
+      }
+    }
+
+    candlesToSave = filtered;
+  }
+
+  // Deduplicate by (symbol, timeframe, timestamp) in case fetched window had duplicate items
+  if (candlesToSave.length > 1) {
+    const seen = new Set<string>();
+    const deduplicated: HistoricalCandle[] = [];
+    for (let i = candlesToSave.length - 1; i >= 0; i--) {
+      const c = candlesToSave[i];
+      const uKey = `${c.symbol}_${c.timeframe}_${c.timestamp}`;
+      if (!seen.has(uKey)) {
+        seen.add(uKey);
+        deduplicated.push(c);
+      }
+    }
+    candlesToSave = deduplicated.reverse();
+  }
+
+  if (candlesToSave.length === 0) {
+    return { success: true, savedCount: 0, skippedCount };
+  }
+
+  const stmts = candlesToSave.map((c) => ({
     sql: `INSERT OR REPLACE INTO market_candles (symbol, timeframe, timestamp, open, high, low, close, volume)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [c.symbol, c.timeframe, c.timestamp, c.open, c.high, c.low, c.close, c.volume],
   }));
-  return executeBatchSql(stmts);
+
+  const success = await executeBatchSql(stmts);
+  return { success, savedCount: success ? candlesToSave.length : 0, skippedCount };
+}
+
+export async function saveCandles(
+  candles: HistoricalCandle[],
+  options?: { deltaOnly?: boolean }
+): Promise<boolean> {
+  const result = await saveCandlesWithStats(candles, options);
+  return result.success;
 }
 
 export async function getHistoricalCandles(

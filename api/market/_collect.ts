@@ -9,6 +9,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   saveCandles,
+  saveCandlesWithStats,
   saveIndicatorSnapshot,
   saveSignalSnapshot,
   type HistoricalCandle,
@@ -451,18 +452,18 @@ export async function handleCollect(req: VercelRequest, res: VercelResponse) {
     let candlesWritten1m = 0;
     let candlesWritten1h = 0;
 
-    // 2. Persist 1m candles (upsert — idempotent via PRIMARY KEY)
+    // 2. Persist 1m candles (delta persistence — newly observed timestamps only)
     if (candles1m.length > 0) {
       const rows: HistoricalCandle[] = candles1m.map((c) => ({ symbol, timeframe: '1m', ...c }));
-      await saveCandles(rows);
-      candlesWritten1m = rows.length;
+      const stats1m = await saveCandlesWithStats(rows);
+      candlesWritten1m = stats1m.savedCount;
     }
 
-    // 3. Persist 1h candles
+    // 3. Persist 1h candles (delta persistence — genuinely new hour timestamps only)
     if (candles1h.length > 0) {
       const rows: HistoricalCandle[] = candles1h.map((c) => ({ symbol, timeframe: '1h', ...c }));
-      await saveCandles(rows);
-      candlesWritten1h = rows.length;
+      const stats1h = await saveCandlesWithStats(rows);
+      candlesWritten1h = stats1h.savedCount;
     }
 
     // 4. Resolve canonical market candle timestamp (latest candle timestamp e.g. 1790001900000)

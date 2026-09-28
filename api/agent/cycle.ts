@@ -1442,7 +1442,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       kvSet('regimeHistory', updatedRegimeHistory),
     ];
 
-    // Ingest 1m & 1h market candles into market_candles table
+    // Ingest newly observed 1m & 1h market candles into market_candles table (delta persistence: skips unchanged historical candles)
     if (candles1m && candles1m.length > 0) {
       historicalTasks.push(
         saveCandles(candles1m.map((c) => ({ symbol: 'BTCUSDT', timeframe: '1m', ...c })))

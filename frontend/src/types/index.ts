@@ -112,6 +112,21 @@ export interface BacktestTrade {
   pnlPct: number;
 }
 
+export interface BacktestTradeAnnotation {
+  id: string;
+  symbol: string;
+  side: TradeSide;
+  strategy: StrategyType;
+  regime: MarketRegime;
+  entryPrice: number;
+  exitPrice: number;
+  entryTimestamp: number;
+  exitTimestamp: number;
+  pnl: number;
+  pnlPct: number;
+  source: 'backtest';
+}
+
 export interface PerformanceSnapshot {
   timestamp: number;
   portfolioValue: number;
@@ -173,6 +188,9 @@ export interface AgentEvent {
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
+  count?: number;
+  symbol?: string;
+  timeframe?: string;
   error?: string;
   timestamp: number;
 }
@@ -315,6 +333,7 @@ export interface HistoricalIndicatorSnapshot {
   symbol: string;
   timeframe: string;
   timestamp: number;
+  collectedAt?: number;
   rsi: number;
   ema20: number;
   ema50: number;
@@ -327,6 +346,7 @@ export interface HistoricalIndicatorSnapshot {
 export interface HistoricalSignalSnapshot {
   id?: string;
   timestamp: number;
+  collectedAt?: number;
   symbol: string;
   technical: { score: number; confidence: number; strength: string };
   liquidity: { score: number; confidence: number; strength: string };
@@ -344,15 +364,37 @@ export interface HistoricalAiDecision {
   timestamp: number;
   symbol: string;
   marketPrice: number;
+  price?: number;
   action: 'BUY' | 'SELL' | 'HOLD';
   confidence: number;
   strategy: string;
   reasoning: string;
-  provider?: string;
-  fusedScore?: number;
-  regime?: string;
+  provider?: string | null;
+  fusedScore?: number | null;
+  regime?: string | null;
   executed: boolean;
   blockReason?: string | null;
   tradeId?: string | null;
+  providerAttempted?: string | null;
+  providerSuccess?: boolean;
+  providerFailureReason?: string | null;
+  latencyMs?: number | null;
+  decisionType?: 'model' | 'failsafe_hold';
 }
+
+export interface HistoricalRiskEvent {
+  id: string;
+  timestamp: number;
+  symbol: string;
+  action: string;
+  strategy?: string | null;
+  confidence?: number | null;
+  blockReason: string;
+  executed: boolean;
+  tradeId?: string | null;
+  fusedScore?: number | null;
+  regime?: string | null;
+  details?: Record<string, any> | null;
+}
+
 

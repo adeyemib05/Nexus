@@ -7,12 +7,12 @@ import StatCard from '../components/ui/StatCard';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import AiDecisionHero from '../components/dashboard/AiDecisionHero';
 import IntelligenceStrip from '../components/dashboard/IntelligenceStrip';
-import RecentAiActivity from '../components/dashboard/RecentAiActivity';
+import DecisionTimeline from '../components/decision/DecisionTimeline';
 import OperationalStatus from '../components/dashboard/OperationalStatus';
 import IntelligenceDrawer from '../components/intelligence/IntelligenceDrawer';
 import MarketChart from '../components/chart/MarketChart';
 import AiRationaleDrawer from '../components/chart/AiRationaleDrawer';
-import { formatPrice, formatPct } from '../lib/utils';
+import { formatPrice, formatPct, normalizeTradeId } from '../lib/utils';
 import { startAgent, pauseAgent, getAgentState } from '../lib/api';
 import type { SignalReading, HistoricalAiDecision } from '../types';
 
@@ -29,6 +29,7 @@ export default function Dashboard() {
 
   const [isToggling, setIsToggling] = useState(false);
   const [selectedSignal, setSelectedSignal] = useState<SignalReading | null>(null);
+  const [selectedDecision, setSelectedDecision] = useState<HistoricalAiDecision | null>(null);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
 
   const isRunning = agentState?.status === 'running';
@@ -51,7 +52,12 @@ export default function Dashboard() {
         regime: agentState.lastAiDecision.regime,
         executed: agentState.lastAiDecision.executed,
         blockReason: agentState.lastAiDecision.blockReason,
-        tradeId: agentState.lastAiDecision.tradeId,
+        tradeId: normalizeTradeId(agentState.lastAiDecision.tradeId),
+        providerAttempted: agentState.lastAiDecision.providerAttempted,
+        providerSuccess: agentState.lastAiDecision.providerSuccess,
+        providerFailureReason: agentState.lastAiDecision.providerFailureReason,
+        latencyMs: agentState.lastAiDecision.latencyMs,
+        decisionType: agentState.lastAiDecision.provider === 'fallback_hold' ? 'failsafe_hold' : 'model',
       }
     : null;
 
@@ -127,6 +133,11 @@ export default function Dashboard() {
         currentTicker={ticker}
         trades={trades}
         defaultTimeframe="1m"
+        selectedDecision={selectedDecision}
+        onSelectDecision={(d) => {
+          setSelectedDecision(d);
+          setIsAiDrawerOpen(true);
+        }}
       />
 
       {/* 3. CORE FINANCIAL KPIS */}
@@ -161,12 +172,15 @@ export default function Dashboard() {
 
       {/* 4. SPLIT OPERATIONAL COCKPIT (60% Feed / 40% Safety Status) */}
       <div className="grid lg:grid-cols-12 gap-5 items-start">
-        {/* Left Column: Recent Activity Feed (7 of 12 cols) */}
+        {/* Left Column: Autonomous Decision Timeline (7 of 12 cols) */}
         <div className="lg:col-span-7 space-y-4">
-          <RecentAiActivity
-            agentState={agentState}
+          <DecisionTimeline
             trades={trades}
-            currentPrice={ticker?.price}
+            selectedDecisionId={selectedDecision?.id}
+            onSelectDecision={(dec) => {
+              setSelectedDecision(dec);
+              setIsAiDrawerOpen(true);
+            }}
           />
         </div>
 
@@ -220,7 +234,7 @@ export default function Dashboard() {
 
       {/* AI Decision Rationale Drawer */}
       <AiRationaleDrawer
-        decision={currentAiDecision}
+        decision={selectedDecision || currentAiDecision}
         isOpen={isAiDrawerOpen}
         onClose={() => setIsAiDrawerOpen(false)}
       />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   FlaskConical,
@@ -23,7 +23,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { runBacktest } from '../lib/api';
-import type { BacktestResult, BacktestTrade } from '../types';
+import type { BacktestResult, BacktestTradeAnnotation } from '../types';
 import { formatPrice, formatPct, formatTimestamp } from '../lib/utils';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import StatCard from '../components/ui/StatCard';
@@ -40,12 +40,33 @@ export default function BacktestLab() {
   const [error, setError] = useState<string | null>(null);
 
   // Selected trade for deep chart inspection
-  const [selectedTrade, setSelectedTrade] = useState<any | null>(null);
+  const [activeTradeId, setActiveTradeId] = useState<string | null>(null);
+  const [selectedTrade, setSelectedTrade] = useState<BacktestTradeAnnotation | null>(null);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
+
+  // Authentically map backtest trades to dedicated annotations (zero fabrication)
+  const backtestAnnotations = useMemo<BacktestTradeAnnotation[]>(() => {
+    if (!result?.trades) return [];
+    return result.trades.map((bt, idx) => ({
+      id: `bt-${idx + 1}-${bt.entryTimestamp}`,
+      symbol: result.symbol || symbol,
+      side: bt.side,
+      strategy: bt.strategy,
+      regime: bt.regime,
+      entryPrice: bt.entryPrice,
+      exitPrice: bt.exitPrice,
+      entryTimestamp: bt.entryTimestamp,
+      exitTimestamp: bt.exitTimestamp,
+      pnl: bt.pnl,
+      pnlPct: bt.pnlPct,
+      source: 'backtest',
+    }));
+  }, [result?.trades, result?.symbol, symbol]);
 
   const handleRun = async () => {
     setIsRunning(true);
     setError(null);
+    setActiveTradeId(null);
     try {
       const res = await runBacktest({
         symbol: symbol.toUpperCase().trim(),
@@ -65,29 +86,9 @@ export default function BacktestLab() {
     }
   };
 
-  // Convert backtest trades to standard Trade format for modal
-  const openTradeInspection = (bt: BacktestTrade, idx: number) => {
-    setSelectedTrade({
-      id: `bt-${idx + 1}`,
-      symbol: result?.symbol || symbol,
-      side: bt.side,
-      strategy: bt.strategy,
-      entryPrice: bt.entryPrice,
-      exitPrice: bt.exitPrice,
-      positionSizePct: 0.02,
-      positionSizeUSD: Math.round(initialCapital * 0.2),
-      stopLoss: bt.side === 'long' ? bt.entryPrice * 0.97 : bt.entryPrice * 1.03,
-      takeProfit: bt.side === 'long' ? bt.entryPrice * 1.05 : bt.entryPrice * 0.95,
-      status: 'closed',
-      openedAt: bt.entryTimestamp,
-      closedAt: bt.exitTimestamp,
-      pnl: bt.pnl,
-      pnlPct: bt.pnlPct,
-      explanation: `Systematic ${bt.strategy.replace(/_/g, ' ')} execution triggered during historical ${bt.regime.replace(/_/g, ' ')} regime.`,
-      regimeAtEntry: bt.regime,
-      regimeConfidence: 78,
-      source: 'live_simulated',
-    });
+  const openTradeInspection = (annotation: BacktestTradeAnnotation) => {
+    setActiveTradeId(annotation.id);
+    setSelectedTrade(annotation);
     setIsTradeModalOpen(true);
   };
 
@@ -326,9 +327,29 @@ export default function BacktestLab() {
                 Click any trade marker or table row for full entry/exit parameters
               </span>
             </div>
+
+            {/* Informative resolution notice if macro timeframe is selected */}
+            {!['1m', '5m', '15m', '1h'].includes(granularity.toLowerCase()) && (
+              <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.06] text-[11px] font-mono flex items-center justify-between">
+                <span className="text-nexus-textMuted">
+                  Backtest Resolution: <strong className="text-nexus-textPrimary uppercase">{granularity}</strong>
+                </span>
+                <span className="text-nexus-accent">
+                  Chart Replay: 1H Supported Resolution
+                </span>
+              </div>
+            )}
+
             <MarketChart
               symbol={result.symbol}
-              defaultTimeframe={granularity}
+              defaultTimeframe={['1m', '5m', '15m', '1h'].includes(granularity.toLowerCase()) ? granularity.toLowerCase() : '1h'}
+              backtestTrades={backtestAnnotations}
+              activeTradeId={activeTradeId}
+              onBacktestTradeSelect={(annotation) => {
+                setActiveTradeId(annotation.id);
+                setSelectedTrade(annotation);
+                setIsTradeModalOpen(true);
+              }}
             />
           </div>
 
@@ -426,15 +447,20 @@ export default function BacktestLab() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04]">
-                  {result.trades.map((t, idx) => {
+                  {backtestAnnotations.map((t) => {
                     const isLong = t.side === 'long';
                     const isProfit = t.pnl >= 0;
+                    const isSelected = activeTradeId === t.id;
 
                     return (
                       <tr
-                        key={idx}
-                        onClick={() => openTradeInspection(t, idx)}
-                        className="hover:bg-white/[0.03] transition-colors cursor-pointer group"
+                        key={t.id}
+                        onClick={() => openTradeInspection(t)}
+                        className={`transition-colors cursor-pointer group ${
+                          isSelected
+                            ? 'bg-nexus-accent/10 border-l-2 border-l-nexus-accent border-y border-white/[0.08]'
+                            : 'hover:bg-white/[0.03]'
+                        }`}
                       >
                         <td className="py-2.5">
                           <span
@@ -460,7 +486,7 @@ export default function BacktestLab() {
                           {isProfit ? `+$${t.pnl.toFixed(2)}` : `-$${Math.abs(t.pnl).toFixed(2)}`}
                         </td>
                         <td className={`py-2.5 font-semibold ${isProfit ? 'text-nexus-bull' : 'text-nexus-bear'}`}>
-                          {formatPct(t.pnlPct * 100)}
+                          {formatPct(t.pnlPct * (Math.abs(t.pnlPct) <= 1 ? 100 : 1))}
                         </td>
                         <td className="py-2.5 text-nexus-textMuted capitalize">
                           {t.regime.replace(/_/g, ' ')}
@@ -469,8 +495,10 @@ export default function BacktestLab() {
                           {new Date(t.entryTimestamp).toLocaleDateString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </td>
                         <td className="py-2.5 text-right">
-                          <span className="text-nexus-accent opacity-0 group-hover:opacity-100 transition-opacity text-[11px] flex items-center justify-end gap-1">
-                            Inspect <ChevronRight size={12} />
+                          <span className={`text-[11px] flex items-center justify-end gap-1 ${
+                            isSelected ? 'text-nexus-accent font-bold opacity-100' : 'text-nexus-accent opacity-0 group-hover:opacity-100 transition-opacity'
+                          }`}>
+                            {isSelected ? 'Active' : 'Inspect'} <ChevronRight size={12} />
                           </span>
                         </td>
                       </tr>

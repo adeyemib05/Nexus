@@ -11,10 +11,12 @@ import type {
   HistoricalCandle,
   HistoricalIndicatorSnapshot,
   HistoricalSignalSnapshot,
-  HistoricalAiDecision
+  HistoricalAiDecision,
+  HistoricalRiskEvent,
 } from '../types';
+import { normalizeTradeId } from './utils';
 
-const BASE = import.meta.env.VITE_API_URL || '';
+const BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) || '';
 
 const api = axios.create({
   baseURL: `${BASE}/api`,
@@ -221,8 +223,40 @@ export async function getAiDecisionsHistory(params?: {
 }): Promise<ApiResponse<HistoricalAiDecision[]>> {
   try {
     const res = await api.get('/agent/history', { params });
+    if (res.data?.data && Array.isArray(res.data.data)) {
+      res.data.data = res.data.data.map((d: any) => ({
+        ...d,
+        tradeId: normalizeTradeId(d.tradeId),
+      }));
+    }
     return res.data;
   } catch (error: any) {
     return { success: false, error: error.message || 'Failed to fetch AI decision history', timestamp: Date.now() };
   }
 }
+
+export async function getHistoricalRiskEvents(params?: {
+  symbol?: string;
+  limit?: number;
+  from?: number;
+  to?: number;
+}): Promise<ApiResponse<HistoricalRiskEvent[]>> {
+  try {
+    const res = await api.get('/risk/history', { params });
+    if (res.data?.data && Array.isArray(res.data.data)) {
+      res.data.data = res.data.data.map((e: any) => ({
+        ...e,
+        tradeId: normalizeTradeId(e.tradeId),
+      }));
+    }
+    return res.data;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to fetch risk events history', timestamp: Date.now() };
+  }
+}
+
+// Backward compatibility & convenience aliases
+export const getRiskEventsHistory = getHistoricalRiskEvents;
+export const getHistoricalAiDecisions = getAiDecisionsHistory;
+export const getHistoricalSignals = getSignalsHistory;
+
