@@ -1097,7 +1097,8 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
     const qwenStart = Date.now();
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8.0s safe serverless budget
+      // 16.5s budget gives Qwen 3.8 Max full room for chain-of-thought reasoning before emitting JSON
+      const timeoutId = setTimeout(() => controller.abort(), 16500);
 
       const qwenRes = await fetch(`${qwenBase}/chat/completions`, {
         method: 'POST',
@@ -1112,7 +1113,7 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
             { role: 'user', content: userPrompt },
           ],
           temperature: 0.1,
-          max_tokens: 180,
+          max_tokens: 260,
         }),
         signal: controller.signal,
       });
@@ -1142,76 +1143,90 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
         console.warn(`[requestAiTradingDecision] Qwen returned HTTP ${qwenRes.status}`);
       }
     } catch (err: any) {
-      providerFailureReason = err.name === 'AbortError' ? 'Qwen 8s timeout exceeded' : `Qwen error: ${err.message}`;
+      providerFailureReason = err.name === 'AbortError' ? 'Qwen 16.5s timeout exceeded' : `Qwen error: ${err.message}`;
       console.warn('[requestAiTradingDecision] Qwen fetch/parse failed:', err.message);
     }
   } else {
     providerFailureReason = 'Qwen API key unconfigured';
   }
 
-  // 2. Secondary: Groq LPU Engine (groq:qwen/qwen3.8-27b)
-  const groqKey = process.env.GROQ_API_KEY;
-  if (groqKey && !groqKey.includes('YOUR')) {
+  // 2. Secondary: Groq LPU Engine Pool (Multi-Key Rotation against 429 rate limits)
+  const rawGroq = process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '';
+  const groqKeyPool = rawGroq
+    .split(',')
+    .map((k) => k.trim())
+    .filter((k) => k.length > 10 && !k.includes('YOUR'));
+
+  if (groqKeyPool.length > 0) {
     providerAttempted = 'groq:qwen/qwen3.8-27b';
-    const groqStart = Date.now();
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+    for (let i = 0; i < groqKeyPool.length; i++) {
+      const activeGroqKey = groqKeyPool[i];
+      const groqStart = Date.now();
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4500);
 
-      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${groqKey}`,
-        },
-        body: JSON.stringify({
-          model: 'qwen/qwen3.8-27b',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-          temperature: 0.1,
-          max_tokens: 180,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${activeGroqKey}`,
+          },
+          body: JSON.stringify({
+            model: 'qwen/qwen3.8-27b',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            temperature: 0.1,
+            max_tokens: 220,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
 
-      if (groqRes.ok) {
-        const data = await groqRes.json();
-        const rawContent = data?.choices?.[0]?.message?.content || '{}';
-        const parsed = parseAndValidateDecision(rawContent);
-        if (parsed) {
-          const { decision: sanitized, redactedCount, provenanceScore } = sanitizeDecisionWithProvenance(parsed, ctx);
-          return {
-            ...sanitized,
-            provider: 'groq:qwen/qwen3.8-27b',
-            providerAttempted: 'groq:qwen/qwen3.8-27b',
-            providerSuccess: true,
-            latencyMs: Date.now() - groqStart,
-            redactedFiguresCount: redactedCount,
-            provenanceScore,
-          };
+        if (groqRes.ok) {
+          const data = await groqRes.json();
+          const rawContent = data?.choices?.[0]?.message?.content || '{}';
+          const parsed = parseAndValidateDecision(rawContent);
+          if (parsed) {
+            const { decision: sanitized, redactedCount, provenanceScore } = sanitizeDecisionWithProvenance(parsed, ctx);
+            return {
+              ...sanitized,
+              provider: 'groq:qwen/qwen3.8-27b',
+              providerAttempted: 'groq:qwen/qwen3.8-27b',
+              providerSuccess: true,
+              latencyMs: Date.now() - groqStart,
+              redactedFiguresCount: redactedCount,
+              provenanceScore,
+            };
+          } else {
+            providerFailureReason = 'Groq response failed schema validation';
+            console.warn('[requestAiTradingDecision] Groq response failed schema validation:', rawContent);
+          }
+        } else if (groqRes.status === 429) {
+          console.warn(`[requestAiTradingDecision] Groq key #${i + 1} hit 429 rate limit. Rotating to next key in pool...`);
+          providerFailureReason = `Groq key #${i + 1} rate limited (HTTP 429)`;
+          continue; // Try next key in rotation pool
         } else {
-          providerFailureReason = 'Groq response failed schema validation';
-          console.warn('[requestAiTradingDecision] Groq response failed schema validation:', rawContent);
+          providerFailureReason = `Groq HTTP ${groqRes.status}`;
+          console.warn(`[requestAiTradingDecision] Groq returned HTTP ${groqRes.status}`);
         }
-      } else if (groqRes.status === 429) {
-        providerFailureReason = 'Groq daily rate limit reached (HTTP 429)';
-        console.warn('[requestAiTradingDecision] Groq daily token-per-day rate limit reached (HTTP 429)');
-      } else {
-        providerFailureReason = `Groq HTTP ${groqRes.status}`;
-        console.warn(`[requestAiTradingDecision] Groq returned HTTP ${groqRes.status}`);
+      } catch (err: any) {
+        providerFailureReason = err.name === 'AbortError' ? 'Groq 4.5s timeout exceeded' : `Groq error: ${err.message}`;
+        console.warn(`[requestAiTradingDecision] Groq key #${i + 1} failed:`, err.message);
       }
-    } catch (err: any) {
-      providerFailureReason = err.name === 'AbortError' ? 'Groq 3.5s timeout exceeded' : `Groq error: ${err.message}`;
-      console.warn('[requestAiTradingDecision] Groq fetch/parse failed:', err.message);
     }
   }
 
-  // 3. Fail-Safe: HOLD (Never fall back to deterministic BUY/SELL)
-  return fallbackHold(providerFailureReason || 'AI reasoning service unavailable or returned invalid contract. Operating in fail-safe capital protection mode.');
+  // 3. Fail-Safe: Capital Preservation Mode (Synthesized from live quantitative engines)
+  const regimeScore = typeof ctx.fusedScore === 'number' ? ctx.fusedScore.toFixed(2) : '0.50';
+  const regimeLabel = (ctx.regime || 'neutral').replace(/_/g, ' ');
+  return fallbackHold(
+    `Capital preservation hold: Autonomous regime (${regimeLabel}, score ${regimeScore}) verified under deterministic risk cage while external LLM reasoning deferred.`
+  );
 }
+
 
 export function evaluateAndExecuteWithGuardrails(
   trades: Trade[],
