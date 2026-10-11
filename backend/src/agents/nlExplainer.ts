@@ -1,4 +1,5 @@
 import type { StrategyDecision } from '../types';
+import { validateAndRedactReasoning } from '../provenance/antiFabrication';
 
 const fetchFn: any = typeof fetch !== 'undefined' ? fetch : require('node-fetch');
 
@@ -167,28 +168,46 @@ export class NLExplainer {
   ): Promise<string> {
     const userPrompt = buildUserPrompt(decision, currentPrice);
 
-    if (isKeySet(process.env.QWEN_API_KEY, 'YOUR_QWEN')) {
-      try {
-        const result = await callQwen(userPrompt);
-        console.log('[NL] ✅ Qwen explained trade');
-        return result;
-      } catch (err: any) {
-        console.log(`[NL] ⚠️  Qwen failed: ${err.message} — trying Gemini`);
+    const rawExplanation = await (async () => {
+      if (isKeySet(process.env.QWEN_API_KEY, 'YOUR_QWEN')) {
+        try {
+          const result = await callQwen(userPrompt);
+          console.log('[NL] ✅ Qwen explained trade');
+          return result;
+        } catch (err: any) {
+          console.log(`[NL] ⚠️  Qwen failed: ${err.message} — trying Gemini`);
+        }
       }
-    }
 
-    if (isKeySet(process.env.GEMINI_API_KEY, 'YOUR_GEMINI')) {
-      try {
-        const fullPrompt = SYSTEM_PROMPT + '\n\n' + userPrompt;
-        const result = await callGemini(fullPrompt);
-        console.log('[NL] ✅ Gemini explained trade');
-        return result;
-      } catch (err: any) {
-        console.log(`[NL] ⚠️  Gemini failed: ${err.message} — using template`);
+      if (isKeySet(process.env.GEMINI_API_KEY, 'YOUR_GEMINI')) {
+        try {
+          const fullPrompt = SYSTEM_PROMPT + '\n\n' + userPrompt;
+          const result = await callGemini(fullPrompt);
+          console.log('[NL] ✅ Gemini explained trade');
+          return result;
+        } catch (err: any) {
+          console.log(`[NL] ⚠️  Gemini failed: ${err.message} — using template`);
+        }
       }
-    }
 
-    console.log('[NL] ℹ️  Using template explanation');
-    return buildMockExplanation(decision, currentPrice);
+      console.log('[NL] ℹ️  Using template explanation');
+      return buildMockExplanation(decision, currentPrice);
+    })();
+
+    const sanitized = validateAndRedactReasoning(rawExplanation, {
+      symbol: decision.symbol,
+      currentPrice,
+      regime: {
+        confidence: decision.regime.confidence,
+        regime: decision.regime.regime,
+      },
+      additionalNumbers: [
+        decision.positionSizePct * 100,
+        decision.stopLossPct * 100,
+        decision.takeProfitPct * 100,
+      ],
+    });
+
+    return sanitized.sanitizedText;
   }
 }

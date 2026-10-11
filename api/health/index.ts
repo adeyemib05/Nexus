@@ -90,11 +90,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     tursoConnected = false;
   }
 
+  // 6. Check Bitget Agent Hub MCP availability
+  let bitgetMcpReachable = false;
+  try {
+    const mcpSignal = typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function'
+      ? (AbortSignal as any).timeout(2000)
+      : undefined;
+    const mcpRes = await fetch('https://agent.bitget.com/mcp', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'mcp-protocol-version': '2025-06-18',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'nexus-health', version: '2.0.0' } },
+      }),
+      signal: mcpSignal,
+    });
+    bitgetMcpReachable = mcpRes.ok && !!mcpRes.headers.get('mcp-session-id');
+  } catch {
+    bitgetMcpReachable = false;
+  }
+
   return res.status(200).json({
     success: true,
     data: {
       status: 'ok',
-      version: '1.0.0',
+      version: '2.0.0',
       uptime: process.uptime ? process.uptime() : 0,
       timestamp: now,
       symbol: 'BTCUSDT',
@@ -102,6 +127,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       services: {
         bitgetApi: bitgetApiReachable,
         bitgetWS: false, // Serverless stateless architecture
+        bitgetMcp: bitgetMcpReachable,
         qwen: qwenState === 'healthy',
         qwenState,
         groq: groqState === 'healthy',

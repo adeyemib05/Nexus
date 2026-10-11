@@ -14,6 +14,7 @@ interface HealthServices {
   qwen: boolean;
   gemini: boolean;
   bitgetApi: boolean;
+  bitgetMcp?: boolean;
 }
 
 export default function Settings() {
@@ -34,6 +35,22 @@ export default function Settings() {
 
   const [services, setServices] = useState<HealthServices | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  const [isProbingMcp, setIsProbingMcp] = useState(false);
+  const [mcpProbeData, setMcpProbeData] = useState<any>(null);
+
+  async function handleProbeMcp() {
+    setIsProbingMcp(true);
+    try {
+      const res = await fetch('/api/mcp/probe');
+      const json = await res.json();
+      setMcpProbeData(json);
+    } catch (err: any) {
+      setMcpProbeData({ success: false, reachable: false, error: err.message });
+    } finally {
+      setIsProbingMcp(false);
+    }
+  }
 
   async function fetchHealth() {
     const res = await getHealth();
@@ -80,9 +97,10 @@ export default function Settings() {
   }
 
   const SERVICE_ROWS: { key: keyof HealthServices; label: string }[] = [
-    { key: 'bitgetApi', label: 'Bitget REST API' },
+    { key: 'bitgetApi', label: 'Bitget REST API v2/v3' },
+    { key: 'bitgetMcp', label: 'Bitget Agent Hub MCP' },
     { key: 'bitgetWS', label: 'Bitget WebSocket' },
-    { key: 'qwen', label: 'Qwen API' },
+    { key: 'qwen', label: 'Alibaba Cloud Qwen 3.8' },
     { key: 'gemini', label: 'Gemini API' },
   ];
 
@@ -345,6 +363,79 @@ export default function Settings() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Official Bitget Agent Hub MCP Diagnostic Card */}
+          <div className="glass-card p-5 border-l-2 border-l-nexus-accent">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-nexus-accent animate-pulse" />
+                <h3 className="font-display font-semibold text-sm text-nexus-textPrimary">Bitget Agent Hub (MCP v3.0)</h3>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase bg-nexus-accent/20 text-nexus-accent border border-nexus-accent/40">
+                Official Protocol
+              </span>
+            </div>
+            <p className="text-[11px] text-nexus-textMuted font-mono leading-relaxed mb-3">
+              Live Streamable HTTP Model Context Protocol integration (<code className="text-nexus-accent">https://agent.bitget.com/mcp</code>). Provides keyless taxonomy discovery and underlying equity telemetry.
+            </p>
+
+            <button
+              onClick={handleProbeMcp}
+              disabled={isProbingMcp}
+              className="w-full py-2 px-3 rounded-lg bg-nexus-accent/10 border border-nexus-accent/30 text-nexus-accent font-display font-semibold text-xs flex items-center justify-center gap-2 hover:bg-nexus-accent/20 transition-all disabled:opacity-60 cursor-pointer"
+            >
+              {isProbingMcp ? (
+                <>
+                  <LoadingSpinner size="sm" /> Probing agent.bitget.com/mcp...
+                </>
+              ) : (
+                <>⚡ Probe Bitget Agent Hub MCP</>
+              )}
+            </button>
+
+            {mcpProbeData && (
+              <div className="mt-3 p-3 rounded-lg bg-black/40 border border-white/[0.06] text-[10px] font-mono space-y-1.5">
+                <div className="flex justify-between items-center pb-1.5 border-b border-white/[0.06]">
+                  <span className="text-nexus-textMuted">Status:</span>
+                  <span className={mcpProbeData.reachable ? 'text-nexus-bull font-bold' : 'text-nexus-caution font-bold'}>
+                    {mcpProbeData.operationalVerdict || (mcpProbeData.reachable ? 'ONLINE' : 'FALLBACK ACTIVE')}
+                  </span>
+                </div>
+                {mcpProbeData.handshake && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-nexus-textMuted">Session ID:</span>
+                      <span className="text-nexus-textPrimary truncate max-w-[170px]" title={mcpProbeData.handshake.sessionId}>
+                        {mcpProbeData.handshake.sessionId ? `${mcpProbeData.handshake.sessionId.slice(0, 16)}...` : 'None'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-nexus-textMuted">Handshake Latency:</span>
+                      <span className="text-nexus-accent">{mcpProbeData.handshake.latencyMs}ms</span>
+                    </div>
+                  </>
+                )}
+                {Array.isArray(mcpProbeData.catalogCategories) && mcpProbeData.catalogCategories.length > 0 && (
+                  <div className="pt-1 border-t border-white/[0.04]">
+                    <span className="text-nexus-textMuted block mb-1">Catalog Taxonomy ({mcpProbeData.catalogCategories.length} categories):</span>
+                    <div className="flex flex-wrap gap-1">
+                      {mcpProbeData.catalogCategories.map((c: any) => (
+                        <span key={c.key} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-nexus-textSecondary text-[9px]">
+                          {c.key} {c.count ? `(${c.count})` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {mcpProbeData.sampleVerification && (
+                  <div className="pt-1 border-t border-white/[0.04] text-nexus-textMuted flex justify-between">
+                    <span>Sample Query:</span>
+                    <span className="text-nexus-bull font-semibold">{mcpProbeData.sampleVerification.target || 'NVDA'} ✓</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="glass-card p-5">

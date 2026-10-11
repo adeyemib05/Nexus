@@ -9,6 +9,8 @@ import {
   ChevronDown,
   ChevronUp,
   Radio,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import type {
   HistoricalAiDecision,
@@ -446,7 +448,7 @@ export default function DecisionTimeline({
 
                       {/* Active Chip */}
                       {isSelected && (
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-nexus-accent/20 text-nexus-accent border border-nexus-accent/40 animate-pulse">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-nexus-accent/20 text-nexus-accent border border-nexus-accent/40 animate-pulse">
                           ★ Active on Chart
                         </span>
                       )}
@@ -477,7 +479,24 @@ export default function DecisionTimeline({
                   {/* Concise Reasoning Strip */}
                   {decision.reasoning && (
                     <div className="px-3.5 pb-2 text-[11px] text-nexus-textMuted/90 font-mono leading-relaxed line-clamp-2">
-                      "{decision.reasoning}"
+                      &ldquo;
+                      {(decision.reasoning || '').includes('[unsourced figure removed]') ? (
+                        <>
+                          {(decision.reasoning || '').split('[unsourced figure removed]').map((seg, i, a) => (
+                            <span key={i}>
+                              {seg}
+                              {i < a.length - 1 && (
+                                <span className="text-nexus-caution font-bold bg-nexus-caution/20 px-1 py-0.5 rounded text-[9px] mx-0.5">
+                                  [redacted]
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                        </>
+                      ) : (
+                        decision.reasoning
+                      )}
+                      &rdquo;
                     </div>
                   )}
 
@@ -632,7 +651,7 @@ export default function DecisionTimeline({
                         <div className="w-20 shrink-0 text-nexus-textMuted uppercase font-bold text-[10px]">
                           3. AI Model:
                         </div>
-                        <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-2">
                           <div className="p-2 rounded bg-white/[0.02] border border-white/[0.04]">
                             <span className="text-[10px] text-nexus-textMuted block">Provider / Identity</span>
                             <span className="font-semibold text-nexus-textPrimary break-all">
@@ -649,6 +668,22 @@ export default function DecisionTimeline({
                             <span className="text-[10px] text-nexus-textMuted block">Decision Type</span>
                             <span className="font-semibold text-nexus-textPrimary capitalize">
                               {decision.decisionType ? decision.decisionType.replace(/_/g, ' ') : 'Model'}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded bg-white/[0.02] border border-white/[0.04]">
+                            <span className="text-[10px] text-nexus-textMuted block">Truth Provenance</span>
+                            <span className="font-semibold text-nexus-textPrimary flex items-center gap-1">
+                              {(decision.reasoning || '').includes('[unsourced figure removed]') ? (
+                                <>
+                                  <ShieldAlert size={12} className="text-nexus-caution" />
+                                  <span className="text-nexus-caution">Sanitized</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ShieldCheck size={12} className="text-nexus-bull" />
+                                  <span className="text-nexus-bull">Verified</span>
+                                </>
+                              )}
                             </span>
                           </div>
                         </div>

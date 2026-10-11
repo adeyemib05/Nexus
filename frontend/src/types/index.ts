@@ -157,6 +157,8 @@ export interface AiDecisionLog {
   executed: boolean;
   blockReason?: string | null;
   tradeId?: string | null;
+  redactedFiguresCount?: number;
+  provenanceScore?: number;
 }
 
 export interface AgentState {
@@ -380,6 +382,61 @@ export interface HistoricalAiDecision {
   providerFailureReason?: string | null;
   latencyMs?: number | null;
   decisionType?: 'model' | 'failsafe_hold';
+  challengeJson?: string | null;
+  riskJson?: string | null;
+  detailsJson?: string | null;
+}
+
+export interface DecisionRecord {
+  decisionId: string;
+  observedAt: number;
+  marketTimestamp: number;
+  decisionTimestamp: number;
+  symbol: string;
+  price: number;
+  regime: string;
+  evidence: {
+    technical: Record<string, any>;
+    volume: Record<string, any>;
+    sentiment: Record<string, any>;
+    onchain: Record<string, any>;
+    news: Record<string, any>;
+  };
+  fusion: {
+    score: number;
+    confidence: number;
+  };
+  ai: {
+    provider: string;
+    action: 'BUY' | 'SELL' | 'HOLD';
+    confidence: number;
+    strategy: string;
+    reasoning: string;
+  };
+  challenge: {
+    status: 'PASSED' | 'CAUTION' | 'CONTRADICTED' | 'UNAVAILABLE' | 'NOT_APPLICABLE';
+    counterThesis: string;
+    invalidation: string;
+    evidence: string[];
+  };
+  risk: {
+    approved: boolean;
+    blockReason: string | null;
+    appliedLimits: Record<string, any>;
+    finalSize: number;
+  };
+  execution: {
+    executed: boolean;
+    tradeId: string | null;
+    executionPrice: number | null;
+    executionTimestamp: number | null;
+  };
+  outcome: {
+    status: 'AVAILABLE' | 'PENDING' | 'UNAVAILABLE' | 'NOT_APPLICABLE';
+    pnl: number | null;
+    pnlPct?: number | null;
+    exitReason?: string | null;
+  };
 }
 
 export interface HistoricalRiskEvent {

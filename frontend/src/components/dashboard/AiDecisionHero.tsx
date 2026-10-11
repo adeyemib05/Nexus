@@ -1,6 +1,7 @@
-import { Shield, Brain, CheckCircle2, AlertTriangle, XCircle, ShieldCheck } from 'lucide-react';
+import { Shield, Brain, CheckCircle2, AlertTriangle, XCircle, ShieldCheck, ShieldAlert } from 'lucide-react';
 import type { AgentState, RegimeReading } from '../../types';
 import { REGIME_CONFIG } from '../../types';
+import { hasRedactedFigures, REDACTION_TOKEN } from '../../lib/antiFabrication';
 
 interface AiDecisionHeroProps {
   agentState: AgentState | null;
@@ -99,12 +100,56 @@ export default function AiDecisionHero({ agentState, currentRegime }: AiDecision
         {/* Right: Qwen Reasoning Quote (8 cols) */}
         <div className="lg:col-span-8">
           <div className="p-3.5 rounded-xl bg-nexus-void/70 border border-white/[0.06] border-l-2 border-l-nexus-accent">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="stat-label text-nexus-accent">AI RATIONALE</span>
-              <span className="text-[10px] font-mono text-nexus-textMuted">· Systematic Hypothesis</span>
+            <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="stat-label text-nexus-accent">AI RATIONALE</span>
+                <span className="text-[10px] font-mono text-nexus-textMuted">· Systematic Hypothesis</span>
+              </div>
+
+              {/* Provenance Badge */}
+              <div className="flex items-center">
+                {hasRedactedFigures(reasoning) ? (
+                  <span
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-nexus-caution/15 text-nexus-caution border border-nexus-caution/30"
+                    title="NEXUS Anti-Fabrication Engine intercepted and redacted ungrounded figures"
+                  >
+                    <ShieldAlert size={11} />
+                    Telemetry Sanitized
+                  </span>
+                ) : (
+                  <span
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-nexus-bull/10 text-nexus-bull border border-nexus-bull/20"
+                    title="100% Truth Provenance: All figures verified against Bitget market telemetry"
+                  >
+                    <ShieldCheck size={11} />
+                    Verified Telemetry
+                  </span>
+                )}
+              </div>
             </div>
+
             <p className="text-xs md:text-sm text-nexus-textPrimary leading-relaxed font-body">
-              &ldquo;{reasoning}&rdquo;
+              &ldquo;
+              {reasoning.includes(REDACTION_TOKEN) ? (
+                <>
+                  {reasoning.split(REDACTION_TOKEN).map((segment, idx, arr) => (
+                    <span key={idx}>
+                      {segment}
+                      {idx < arr.length - 1 && (
+                        <span
+                          className="inline-flex items-center px-1.5 py-0.5 mx-1 rounded text-[10px] font-mono font-semibold bg-nexus-caution/20 text-nexus-caution border border-nexus-caution/40 align-middle"
+                          title="NEXUS Anti-Fabrication Engine: figure unverified against Bitget telemetry"
+                        >
+                          [unverified figure redacted]
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </>
+              ) : (
+                reasoning
+              )}
+              &rdquo;
             </p>
           </div>
         </div>

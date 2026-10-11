@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { validateAndRedactReasoning } from '../provenance/antiFabrication';
 
 interface DefensiveHedge {
   action: string;
@@ -15,6 +16,29 @@ interface QwenAnalysisResponse {
   defensiveHedge: DefensiveHedge;
   rebalanceAdvice: string;
   opportunisticDipPrice: number;
+}
+
+function sanitizeStressReasoning(
+  parsed: QwenAnalysisResponse,
+  context: { symbol: string; currentPrice?: number; positionUsd?: number; shockPct?: number }
+): QwenAnalysisResponse {
+  const telemetry = {
+    symbol: context.symbol,
+    currentPrice: context.currentPrice,
+    additionalNumbers: [
+      ...(context.positionUsd ? [context.positionUsd] : []),
+      ...(context.shockPct !== undefined ? [Math.abs(context.shockPct)] : []),
+    ],
+  };
+
+  return {
+    ...parsed,
+    summary: validateAndRedactReasoning(parsed.summary, telemetry).sanitizedText,
+    firstOrder: validateAndRedactReasoning(parsed.firstOrder, telemetry).sanitizedText,
+    secondOrder: validateAndRedactReasoning(parsed.secondOrder, telemetry).sanitizedText,
+    thirdOrderWeekend: validateAndRedactReasoning(parsed.thirdOrderWeekend, telemetry).sanitizedText,
+    rebalanceAdvice: validateAndRedactReasoning(parsed.rebalanceAdvice, telemetry).sanitizedText,
+  };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -90,9 +114,15 @@ Generate pre-trade risk analysis and return valid JSON only.`;
         const parsed: QwenAnalysisResponse = JSON.parse(cleaned);
 
         if (parsed.summary && parsed.firstOrder) {
+          const sanitized = sanitizeStressReasoning(parsed, {
+            symbol: safeSymbol,
+            currentPrice: Number(currentPrice) || undefined,
+            positionUsd: safePosition,
+            shockPct: Number(shockPct),
+          });
           return res.status(200).json({
             success: true,
-            data: { aiReasoning: parsed },
+            data: { aiReasoning: sanitized },
             provider: 'qwen-3.8-max',
           });
         }
@@ -132,9 +162,15 @@ Generate pre-trade risk analysis and return valid JSON only.`;
         const parsed: QwenAnalysisResponse = JSON.parse(cleaned);
 
         if (parsed.summary && parsed.firstOrder) {
+          const sanitized = sanitizeStressReasoning(parsed, {
+            symbol: safeSymbol,
+            currentPrice: Number(currentPrice) || undefined,
+            positionUsd: safePosition,
+            shockPct: Number(shockPct),
+          });
           return res.status(200).json({
             success: true,
-            data: { aiReasoning: parsed },
+            data: { aiReasoning: sanitized },
             provider: 'groq-qwen-32b',
           });
         }

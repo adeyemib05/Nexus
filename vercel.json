@@ -77,6 +77,10 @@
       "destination": "/api/agent/state?sub=risk-history"
     },
     {
+      "source": "/api/decision/:id",
+      "destination": "/api/decision?id=:id"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

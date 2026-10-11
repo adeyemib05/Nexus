@@ -170,7 +170,32 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* 4. SPLIT OPERATIONAL COCKPIT (60% Feed / 40% Safety Status) */}
+      {/* 4. CENTRAL VISUAL MARKET ANCHOR & DECISION RECORD INSPECTION */}
+      <div className="glass-card p-4 space-y-3">
+        <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-nexus-accent animate-pulse" />
+            <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-nexus-textPrimary">
+              Live BTC/USDT Telemetry & Autonomous Decision Spine
+            </h2>
+          </div>
+          <span className="text-[11px] font-mono text-nexus-textMuted hidden sm:inline">
+            Click any AI marker on chart to inspect canonical Decision Record
+          </span>
+        </div>
+        <MarketChart
+          symbol="BTCUSDT"
+          currentTicker={ticker}
+          trades={trades}
+          selectedDecision={selectedDecision}
+          onSelectDecision={(d) => {
+            setSelectedDecision(d);
+            setIsAiDrawerOpen(true);
+          }}
+        />
+      </div>
+
+      {/* 5. SPLIT OPERATIONAL COCKPIT (60% Feed / 40% Safety Status) */}
       <div className="grid lg:grid-cols-12 gap-5 items-start">
         {/* Left Column: Autonomous Decision Timeline (7 of 12 cols) */}
         <div className="lg:col-span-7 space-y-4">

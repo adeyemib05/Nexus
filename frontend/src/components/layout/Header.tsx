@@ -53,6 +53,11 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-3">
+        <div className="hidden lg:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/[0.03] border border-white/[0.06] text-[10px] font-mono text-nexus-textSecondary" title="Official Bitget Agent Hub Model Context Protocol v3.0 Enabled">
+          <span className="w-1.5 h-1.5 rounded-full bg-nexus-accent animate-pulse" />
+          <span>Bitget Hub MCP</span>
+        </div>
+
         <div className="flex items-center gap-1.5">
           <span
             className={`w-1.5 h-1.5 rounded-full ${

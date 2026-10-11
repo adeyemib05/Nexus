@@ -12,6 +12,7 @@ import {
   Clock,
   ChevronRight,
   AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -117,6 +118,17 @@ export default function BacktestLab() {
 
         <span className="px-2.5 py-1 rounded text-xs font-mono bg-white/[0.03] border border-white/[0.08] text-nexus-textMuted self-start sm:self-auto">
           Track 2 Algorithmic Verification
+        </span>
+      </div>
+
+      {/* Methodological Honesty Banner (Step 10) */}
+      <div className="p-3.5 rounded-xl bg-nexus-accent/5 border border-nexus-accent/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs font-mono">
+        <div className="flex items-center gap-2 text-nexus-accent">
+          <ShieldCheck size={16} className="shrink-0" />
+          <span className="font-semibold">Deterministic Historical Strategy Replay. LLM inference is not replayed.</span>
+        </div>
+        <span className="text-[11px] text-nexus-textMuted">
+          Replays 5-signal regime equations against Bitget candles with standard transaction assumptions.
         </span>
       </div>
 

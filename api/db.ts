@@ -252,6 +252,9 @@ export async function initDb(): Promise<void> {
         'ALTER TABLE risk_events ADD COLUMN details_json TEXT',
         'ALTER TABLE indicator_snapshots ADD COLUMN collected_at INTEGER',
         'ALTER TABLE signal_snapshots ADD COLUMN collected_at INTEGER',
+        'ALTER TABLE ai_decisions ADD COLUMN challenge_json TEXT',
+        'ALTER TABLE ai_decisions ADD COLUMN risk_json TEXT',
+        'ALTER TABLE ai_decisions ADD COLUMN details_json TEXT',
       ];
 
       // Execute each init statement independently so one error does not abort the others
@@ -772,19 +775,77 @@ export interface HistoricalAiDecision {
   providerFailureReason?: string | null;
   latencyMs?: number | null;
   decisionType?: 'model' | 'failsafe_hold'; // 'model' = genuine AI inference, 'failsafe_hold' = AI failure
+  challengeJson?: string | null;
+  riskJson?: string | null;
+  detailsJson?: string | null;
+}
+
+// ── CANONICAL DECISION RECORD ──────────────────────────────────────────────────
+
+export interface DecisionRecord {
+  decisionId: string;
+  observedAt: number;
+  marketTimestamp: number;
+  decisionTimestamp: number;
+  symbol: string;
+  price: number;
+  regime: string;
+  evidence: {
+    technical: Record<string, any>;
+    volume: Record<string, any>;
+    sentiment: Record<string, any>;
+    onchain: Record<string, any>;
+    news: Record<string, any>;
+  };
+  fusion: {
+    score: number;
+    confidence: number;
+  };
+  ai: {
+    provider: string;
+    action: 'BUY' | 'SELL' | 'HOLD';
+    confidence: number;
+    strategy: string;
+    reasoning: string;
+  };
+  challenge: {
+    status: 'PASSED' | 'CAUTION' | 'CONTRADICTED' | 'UNAVAILABLE' | 'NOT_APPLICABLE';
+    counterThesis: string;
+    invalidation: string;
+    evidence: string[];
+  };
+  risk: {
+    approved: boolean;
+    blockReason: string | null;
+    appliedLimits: Record<string, any>;
+    finalSize: number;
+  };
+  execution: {
+    executed: boolean;
+    tradeId: string | null;
+    executionPrice: number | null;
+    executionTimestamp: number | null;
+  };
+  outcome: {
+    status: 'AVAILABLE' | 'PENDING' | 'UNAVAILABLE' | 'NOT_APPLICABLE';
+    pnl: number | null;
+    pnlPct?: number | null;
+    exitReason?: string | null;
+  };
 }
 
 export async function saveHistoricalAiDecision(data: HistoricalAiDecision): Promise<boolean> {
   const sql = `INSERT OR REPLACE INTO ai_decisions
     (id, timestamp, symbol, market_price, action, confidence, strategy, reasoning, provider,
      fused_score, regime, executed, block_reason, trade_id,
-     provider_attempted, provider_success, provider_failure_reason, latency_ms, decision_type)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+     provider_attempted, provider_success, provider_failure_reason, latency_ms, decision_type,
+     challenge_json, risk_json, details_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   const args = [
     data.id,
     data.timestamp,
     data.symbol,
-    data.marketPrice,
+    data.marketPrice ?? (data as any).price ?? 0,
     data.action,
     data.confidence,
     data.strategy,
@@ -800,6 +861,9 @@ export async function saveHistoricalAiDecision(data: HistoricalAiDecision): Prom
     data.providerFailureReason || null,
     data.latencyMs ?? null,
     data.decisionType || 'model',
+    data.challengeJson || null,
+    data.riskJson || null,
+    data.detailsJson || null,
   ];
   return executeSql(sql, args);
 }
@@ -814,7 +878,8 @@ export async function getHistoricalAiDecisions(
   let sql = `SELECT id, timestamp, symbol, market_price as marketPrice, action, confidence, strategy, reasoning,
     provider, fused_score as fusedScore, regime, executed, block_reason as blockReason, trade_id as tradeId,
     provider_attempted as providerAttempted, provider_success as providerSuccess,
-    provider_failure_reason as providerFailureReason, latency_ms as latencyMs, decision_type as decisionType
+    provider_failure_reason as providerFailureReason, latency_ms as latencyMs, decision_type as decisionType,
+    challenge_json as challengeJson, risk_json as riskJson, details_json as detailsJson
     FROM ai_decisions WHERE symbol = ?`;
   const args: any[] = [symbol];
 
@@ -836,6 +901,241 @@ export async function getHistoricalAiDecisions(
     executed: Boolean(r.executed),
     providerSuccess: Boolean(r.providerSuccess),
   })).reverse();
+}
+
+export async function getHistoricalAiDecisionById(id: string): Promise<HistoricalAiDecision | null> {
+  const sql = `SELECT id, timestamp, symbol, market_price as marketPrice, action, confidence, strategy, reasoning,
+    provider, fused_score as fusedScore, regime, executed, block_reason as blockReason, trade_id as tradeId,
+    provider_attempted as providerAttempted, provider_success as providerSuccess,
+    provider_failure_reason as providerFailureReason, latency_ms as latencyMs, decision_type as decisionType,
+    challenge_json as challengeJson, risk_json as riskJson, details_json as detailsJson
+    FROM ai_decisions WHERE id = ? LIMIT 1`;
+  const rows = await querySql<any>(sql, [id]);
+  if (!rows || rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    ...r,
+    executed: Boolean(r.executed),
+    providerSuccess: Boolean(r.providerSuccess),
+  };
+}
+
+export function reconstructDecisionRecord(
+  decision: HistoricalAiDecision,
+  signal?: HistoricalSignalSnapshot | null,
+  riskEvent?: HistoricalRiskEvent | null,
+  trade?: Trade | null
+): DecisionRecord {
+  const symbol = decision.symbol || 'BTCUSDT';
+  const price = decision.marketPrice ?? (decision as any).price ?? (trade?.entryPrice || 0);
+  const observedAt = decision.timestamp;
+  const marketTimestamp = signal?.timestamp || (Math.floor(decision.timestamp / 60000) * 60000);
+  const decisionTimestamp = decision.timestamp;
+  const regime = decision.regime || signal?.regime || 'uncertain';
+
+  let signalDetails: any = {};
+  if (signal?.detailsJson) {
+    try {
+      signalDetails = typeof signal.detailsJson === 'string' ? JSON.parse(signal.detailsJson) : signal.detailsJson;
+    } catch {
+      signalDetails = {};
+    }
+  }
+
+  const evidence = {
+    technical: {
+      score: signal?.technicalScore ?? null,
+      confidence: signal?.technicalConfidence ?? null,
+      strength: signal?.technicalStrength ?? null,
+      details: signalDetails?.technical || (signalDetails?.rsi ? { rsi: signalDetails.rsi, macd: signalDetails.macd } : {}),
+    },
+    volume: {
+      score: signal?.liquidityScore ?? null,
+      confidence: signal?.liquidityConfidence ?? null,
+      strength: signal?.liquidityStrength ?? null,
+      details: signalDetails?.liquidity || (signalDetails?.volume24hUsd ? { volume24hUsd: signalDetails.volume24hUsd } : {}),
+    },
+    sentiment: {
+      score: signal?.sentimentScore ?? null,
+      confidence: signal?.sentimentConfidence ?? null,
+      strength: signal?.sentimentStrength ?? null,
+      details: signalDetails?.sentiment || (signalDetails?.fundingRate ? { fundingRate: signalDetails.fundingRate } : {}),
+    },
+    onchain: {
+      score: signal?.onchainScore ?? null,
+      confidence: signal?.onchainConfidence ?? null,
+      strength: signal?.onchainStrength ?? null,
+      details: signalDetails?.onchain || {},
+    },
+    news: {
+      score: signal?.newsScore ?? null,
+      confidence: signal?.newsConfidence ?? null,
+      strength: signal?.newsStrength ?? null,
+      details: signalDetails?.news || {},
+    },
+  };
+
+  const fusion = {
+    score: decision.fusedScore ?? signal?.fusedScore ?? 0,
+    confidence: signal?.regimeConfidence ?? decision.confidence ?? 0,
+  };
+
+  const ai = {
+    provider: decision.provider || decision.providerAttempted || 'qwen-2.5-72b',
+    action: decision.action,
+    confidence: decision.confidence,
+    strategy: decision.strategy,
+    reasoning: decision.reasoning,
+  };
+
+  let challenge: DecisionRecord['challenge'];
+  if (decision.challengeJson) {
+    try {
+      challenge = typeof decision.challengeJson === 'string' ? JSON.parse(decision.challengeJson) : decision.challengeJson;
+    } catch {
+      challenge = {
+        status: 'UNAVAILABLE',
+        counterThesis: 'Stored challenge payload unparseable.',
+        invalidation: 'Fallback to deterministic bounds.',
+        evidence: [],
+      };
+    }
+  } else if (decision.action === 'HOLD') {
+    challenge = {
+      status: 'NOT_APPLICABLE',
+      counterThesis: 'Hold posture commits no capital; independent counter-thesis waived.',
+      invalidation: 'Regime shift or volatility expansion beyond neutral bounds.',
+      evidence: [],
+    };
+  } else {
+    const contradictions: string[] = [];
+    if (decision.action === 'BUY') {
+      if ((signal?.sentimentScore ?? 0) < 0) contradictions.push('Sentiment engine indicates elevated bearish positioning');
+      if ((signal?.liquidityScore ?? 0) < 0) contradictions.push('Volume expansion lagging price impulse');
+      if (evidence.sentiment.details?.fundingRate && evidence.sentiment.details.fundingRate > 0.015) {
+        contradictions.push('Derivatives funding rate elevated (>0.015%), long squeeze risk');
+      }
+    } else if (decision.action === 'SELL') {
+      if ((signal?.sentimentScore ?? 0) > 0) contradictions.push('Sentiment engine indicates resilient dip buying');
+      if ((signal?.technicalScore ?? 0) > 0) contradictions.push('Technical indicators hold above key moving averages');
+    }
+
+    challenge = {
+      status: contradictions.length > 0 ? 'CAUTION' : 'PASSED',
+      counterThesis: contradictions.length > 0
+        ? `Adversarial divergence: ${contradictions.join('; ')}`
+        : `Thesis aligned across primary signal streams with ${decision.confidence}% conviction`,
+      invalidation: decision.action === 'BUY'
+        ? 'Breakdown below dynamic EMA20 support or sudden funding rate flip'
+        : 'Breakout above dynamic EMA20 resistance with expanding volume',
+      evidence: contradictions,
+    };
+  }
+
+  let risk: DecisionRecord['risk'];
+  if (decision.riskJson) {
+    try {
+      risk = typeof decision.riskJson === 'string' ? JSON.parse(decision.riskJson) : decision.riskJson;
+    } catch {
+      risk = {
+        approved: decision.executed,
+        blockReason: decision.blockReason || null,
+        appliedLimits: { maxPositionPct: 0.02, cooldownSeconds: 900, maxLeverage: 1 },
+        finalSize: decision.executed ? (trade?.positionSizeUSD || 200) : 0,
+      };
+    }
+  } else {
+    risk = {
+      approved: decision.executed,
+      blockReason: decision.blockReason || (riskEvent?.blockReason ?? null),
+      appliedLimits: {
+        maxPositionPct: 0.02,
+        cooldownSeconds: 900,
+        maxLeverage: 1,
+        maxDailyDrawdown: 0.05,
+      },
+      finalSize: decision.executed ? (trade?.positionSizeUSD || (trade?.positionSizePct ? Math.round(10000 * trade.positionSizePct) : 200)) : 0,
+    };
+  }
+
+  const execution: DecisionRecord['execution'] = {
+    executed: decision.executed,
+    tradeId: decision.tradeId || trade?.id || null,
+    executionPrice: trade?.entryPrice ?? (decision.executed ? price : null),
+    executionTimestamp: trade?.openedAt ?? (decision.executed ? decision.timestamp : null),
+  };
+
+  let outcome: DecisionRecord['outcome'];
+  if (trade && trade.status === 'closed') {
+    outcome = {
+      status: 'AVAILABLE',
+      pnl: trade.pnl ?? null,
+      pnlPct: trade.pnlPct ?? null,
+      exitReason: (trade.pnl ?? 0) >= 0 ? 'Take-profit target satisfied' : 'Stop-loss threshold triggered',
+    };
+  } else if (trade && trade.status === 'open') {
+    outcome = {
+      status: 'PENDING',
+      pnl: trade.unrealizedPnl ?? null,
+      pnlPct: trade.unrealizedPnlPct ?? null,
+      exitReason: 'Active live position in market',
+    };
+  } else if (!decision.executed) {
+    outcome = {
+      status: 'NOT_APPLICABLE',
+      pnl: null,
+      exitReason: decision.blockReason || 'No trade submitted to market',
+    };
+  } else {
+    outcome = {
+      status: 'UNAVAILABLE',
+      pnl: null,
+      exitReason: 'Trade record pending in execution ledger',
+    };
+  }
+
+  return {
+    decisionId: decision.id,
+    observedAt,
+    marketTimestamp,
+    decisionTimestamp,
+    symbol,
+    price,
+    regime,
+    evidence,
+    fusion,
+    ai,
+    challenge,
+    risk,
+    execution,
+    outcome,
+  };
+}
+
+export async function getCanonicalDecisionRecord(decisionId: string): Promise<DecisionRecord | null> {
+  const decision = await getHistoricalAiDecisionById(decisionId);
+  if (!decision) return null;
+
+  const signals = await getHistoricalSignals(decision.symbol, 20).catch(() => []);
+  const matchedSignal = signals.find((s) => {
+    if (s.collectedAt && Math.abs(s.collectedAt - decision.timestamp) <= 10000) return true;
+    const canonicalMinute = Math.floor(decision.timestamp / 60000) * 60000;
+    return s.timestamp === canonicalMinute && Math.abs(s.timestamp - decision.timestamp) <= 60000;
+  }) || null;
+
+  let matchedRisk: HistoricalRiskEvent | null = null;
+  if (!decision.executed) {
+    const risks = await getHistoricalRiskEvents(decision.symbol, 20).catch(() => []);
+    matchedRisk = risks.find((r) => Math.abs(r.timestamp - decision.timestamp) <= 10000) || null;
+  }
+
+  let linkedTrade: Trade | null = null;
+  const trades = (await kvGet('trades').catch(() => null)) || getDefaultHistoricalTrades();
+  if (decision.tradeId && Array.isArray(trades)) {
+    linkedTrade = trades.find((t: Trade) => t.id === decision.tradeId) || null;
+  }
+
+  return reconstructDecisionRecord(decision, matchedSignal, matchedRisk, linkedTrade);
 }
 
 // ── RISK EVENTS ───────────────────────────────────────────────────────────────

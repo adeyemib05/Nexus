@@ -13,6 +13,7 @@ import type {
   HistoricalSignalSnapshot,
   HistoricalAiDecision,
   HistoricalRiskEvent,
+  DecisionRecord,
 } from '../types';
 import { normalizeTradeId } from './utils';
 
@@ -259,4 +260,35 @@ export async function getHistoricalRiskEvents(params?: {
 export const getRiskEventsHistory = getHistoricalRiskEvents;
 export const getHistoricalAiDecisions = getAiDecisionsHistory;
 export const getHistoricalSignals = getSignalsHistory;
+
+export async function probeBitgetMcp(): Promise<any> {
+  try {
+    const res = await api.get('/mcp/probe');
+    return res.data;
+  } catch (error: any) {
+    return { success: false, reachable: false, error: error.message || 'Bitget MCP probe failed' };
+  }
+}
+
+export async function getDecisionRecord(id: string): Promise<ApiResponse<DecisionRecord>> {
+  try {
+    const res = await api.get('/decision', { params: { id } });
+    return res.data;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to retrieve decision record', timestamp: Date.now() };
+  }
+}
+
+export async function getDecisionRecords(params?: {
+  symbol?: string;
+  limit?: number;
+}): Promise<ApiResponse<DecisionRecord[]>> {
+  try {
+    const res = await api.get('/decision', { params });
+    return res.data;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to retrieve decision records', timestamp: Date.now() };
+  }
+}
+
 

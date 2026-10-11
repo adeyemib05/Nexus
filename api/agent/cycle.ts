@@ -17,6 +17,9 @@ import {
   type MarketRegime,
   type StrategyType,
 } from '../db';
+import { validateAndRedactReasoning } from '../provenance/antiFabrication';
+import { evaluateRiskCage, type RiskCageVerdict } from '../risk/riskCage';
+import { evaluateAdversarialChallenge, type AdversarialChallengeResult } from './adversarialChallenge';
 
 // ── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
 
@@ -316,6 +319,23 @@ async function computeSentimentSignal(symbol = 'BTCUSDT'): Promise<SignalReading
   );
   const confidence = clamp(0.60 + Math.abs(score) * 0.25, 0.50, 0.88);
 
+  let sourceAgreement: 'AGREE' | 'DISCREPANCY' | 'INSUFFICIENT_SOURCES' = 'INSUFFICIENT_SOURCES';
+  let agreementDetail = 'Single source active';
+  if (fngValue !== null && fundingRate !== null) {
+    const fngBullish = fngValue >= 55;
+    const fngBearish = fngValue <= 45;
+    const fundBullish = fundingRate >= 0.005;
+    const fundBearish = fundingRate <= -0.005;
+
+    if ((fngBullish && fundBullish) || (fngBearish && fundBearish) || (!fngBullish && !fngBearish && Math.abs(fundingRate) < 0.005)) {
+      sourceAgreement = 'AGREE';
+      agreementDetail = `Sources agree on market stance (Bitget funding ${fundingRate > 0 ? '+' : ''}${(fundingRate * 100).toFixed(3)}%, FnG ${fngValue})`;
+    } else {
+      sourceAgreement = 'DISCREPANCY';
+      agreementDetail = `Source divergence: Bitget funding (${fundingRate > 0 ? '+' : ''}${(fundingRate * 100).toFixed(3)}%) diverges from retail sentiment (FnG ${fngValue})`;
+    }
+  }
+
   return {
     type: 'sentiment',
     score: parseFloat(score.toFixed(3)),
@@ -327,6 +347,8 @@ async function computeSentimentSignal(symbol = 'BTCUSDT'): Promise<SignalReading
     details: {
       fundingRate: fundingRate ?? 0.0001,
       fearGreedIndex: fngValue ?? 50,
+      sourceAgreement,
+      agreementDetail,
       evidenceScope: 'Bitget USDT-Futures funding rate + Alternative.me daily Fear & Greed index (No direct X/Twitter stream)',
     },
     timestamp: now,
@@ -898,6 +920,8 @@ export interface AiDecisionResult extends AiTradingDecision {
   latencyMs?: number;
   failed?: boolean;
   failureReason?: string;
+  redactedFiguresCount?: number;
+  provenanceScore?: number;
 }
 
 export interface AiDecisionContext {
@@ -950,6 +974,53 @@ export function parseAndValidateDecision(raw: string): AiTradingDecision | null 
   } catch {
     return null;
   }
+}
+
+export function sanitizeDecisionWithProvenance(
+  decision: AiTradingDecision,
+  ctx: AiDecisionContext
+): { decision: AiTradingDecision; redactedCount: number; provenanceScore: number } {
+  const validation = validateAndRedactReasoning(decision.reasoning, {
+    symbol: ctx.symbol,
+    currentPrice: ctx.currentPrice,
+    technical: {
+      score: ctx.technical.score,
+      rsi: typeof ctx.technical.details?.rsi === 'number' ? ctx.technical.details.rsi : undefined,
+      ema20: typeof ctx.technical.details?.ema20 === 'number' ? ctx.technical.details.ema20 : undefined,
+      ema50: typeof ctx.technical.details?.ema50 === 'number' ? ctx.technical.details.ema50 : undefined,
+      priceVsEma20: ctx.technical.details?.priceVsEma20,
+      macd: typeof ctx.technical.details?.macd === 'number' ? ctx.technical.details.macd : undefined,
+    },
+    sentiment: {
+      score: ctx.sentiment.score,
+      fundingRate: ctx.sentiment.details?.fundingRate,
+      fearGreedIndex: ctx.sentiment.details?.fearGreedIndex,
+    },
+    onchain: {
+      score: ctx.onchain.score,
+      networkFeeRate: ctx.onchain.details?.networkFeeRate,
+      tvlMomentum24h: ctx.onchain.details?.tvlMomentum24h,
+    },
+    macro: {
+      score: ctx.macro.score,
+      volume24hUsd: ctx.macro.details?.volume24hUsd,
+    },
+    regime: {
+      fusedScore: ctx.regime.fusedScore,
+      confidence: ctx.regime.confidence,
+      regime: ctx.regime.regime,
+    },
+    knownHeadlines: Array.isArray(ctx.news.details?.topHeadlines) ? ctx.news.details.topHeadlines : [],
+  });
+
+  return {
+    decision: {
+      ...decision,
+      reasoning: validation.sanitizedText,
+    },
+    redactedCount: validation.redactedCount,
+    provenanceScore: validation.provenanceScore,
+  };
 }
 
 function buildAiPrompts(ctx: AiDecisionContext): { systemPrompt: string; userPrompt: string } {
@@ -1011,6 +1082,8 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
     latencyMs: Date.now() - startTime,
     failed: true,
     failureReason: reason,
+    redactedFiguresCount: 0,
+    provenanceScore: 100,
   });
 
   const { systemPrompt, userPrompt } = buildAiPrompts(ctx);
@@ -1050,12 +1123,15 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
         const rawContent = data?.choices?.[0]?.message?.content || '{}';
         const parsed = parseAndValidateDecision(rawContent);
         if (parsed) {
+          const { decision: sanitized, redactedCount, provenanceScore } = sanitizeDecisionWithProvenance(parsed, ctx);
           return {
-            ...parsed,
+            ...sanitized,
             provider: 'qwen-3.8-max',
             providerAttempted: 'qwen-3.8-max',
             providerSuccess: true,
             latencyMs: Date.now() - qwenStart,
+            redactedFiguresCount: redactedCount,
+            provenanceScore,
           };
         } else {
           providerFailureReason = 'Qwen response failed schema validation';
@@ -1106,12 +1182,15 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
         const rawContent = data?.choices?.[0]?.message?.content || '{}';
         const parsed = parseAndValidateDecision(rawContent);
         if (parsed) {
+          const { decision: sanitized, redactedCount, provenanceScore } = sanitizeDecisionWithProvenance(parsed, ctx);
           return {
-            ...parsed,
+            ...sanitized,
             provider: 'groq:qwen/qwen3.8-27b',
             providerAttempted: 'groq:qwen/qwen3.8-27b',
             providerSuccess: true,
             latencyMs: Date.now() - groqStart,
+            redactedFiguresCount: redactedCount,
+            provenanceScore,
           };
         } else {
           providerFailureReason = 'Groq response failed schema validation';
@@ -1140,117 +1219,93 @@ export function evaluateAndExecuteWithGuardrails(
   regime: RegimeReading,
   currentPrice: number,
   portfolioValue: number,
-  cycleCount: number
-): { updatedTrades: Trade[]; newTrade: Trade | null; blockReason: string | null } {
-  // Only inspect live_simulated open positions. Historical seed trades must never block live entries.
+  cycleCount: number,
+  marketTimestamp: number = Date.now(),
+  engineScores?: { technical?: number; volume?: number; sentiment?: number; onchain?: number; news?: number },
+  details?: { rsi?: number; fundingRate?: number; volume24hUsd?: number; ema20?: number; ema50?: number }
+): {
+  updatedTrades: Trade[];
+  newTrade: Trade | null;
+  blockReason: string | null;
+  riskVerdict: RiskCageVerdict;
+  challengeResult: AdversarialChallengeResult;
+} {
+  const now = Date.now();
   const openLiveTrades = trades.filter((t) => t.status === 'open' && t.source === 'live_simulated');
-  const hasOpenLong = openLiveTrades.some((t) => t.side === 'long');
-  const hasOpenShort = openLiveTrades.some((t) => t.side === 'short');
+  const closedLiveTrades = trades.filter((t) => t.status === 'closed' && t.source === 'live_simulated');
+
+  // Step 3: Run Bounded Adversarial Challenge (targets BUY/SELL, skips HOLD)
+  const challengeResult = evaluateAdversarialChallenge({
+    action: aiDecision.action,
+    confidence: aiDecision.confidence,
+    strategy: aiDecision.strategy,
+    reasoning: aiDecision.reasoning,
+    currentPrice,
+    regime: regime.regime,
+    fusedScore: regime.fusedScore,
+    engineScores: engineScores || {},
+    details: details || {},
+  });
+
+  // Calculate live portfolio drawdown against baseline
+  const peakValue = 10000;
+  const currentDrawdown = Math.max(0, (peakValue - portfolioValue) / peakValue);
+
+  // Step 2: Evaluate Deterministic Risk Cage OUTSIDE LLM CONTROL
+  const riskVerdict = evaluateRiskCage({
+    symbol: 'BTCUSDT',
+    action: aiDecision.action,
+    confidence: aiDecision.confidence,
+    currentPrice,
+    marketTimestamp,
+    portfolioValue,
+    currentDrawdown,
+    openTrades: openLiveTrades,
+    closedTrades: closedLiveTrades,
+    now,
+  });
 
   let newTrade: Trade | null = null;
   let blockReason: string | null = null;
-  const now = Date.now();
 
-  // 15-Minute Re-Entry Cooldown for live_simulated trading (derived from persisted trades)
-  const COOLDOWN_MS = 15 * 60 * 1000;
-  const recentClosedLiveLong = trades.some(
-    (t) =>
-      t.source === 'live_simulated' &&
-      t.status === 'closed' &&
-      t.side === 'long' &&
-      t.closedAt &&
-      now - t.closedAt < COOLDOWN_MS
-  );
-  const recentClosedLiveShort = trades.some(
-    (t) =>
-      t.source === 'live_simulated' &&
-      t.status === 'closed' &&
-      t.side === 'short' &&
-      t.closedAt &&
-      now - t.closedAt < COOLDOWN_MS
-  );
+  if (riskVerdict.approved) {
+    const isLong = aiDecision.action === 'BUY';
+    const sl = isLong
+      ? parseFloat((currentPrice * (1 - 0.025)).toFixed(2))
+      : parseFloat((currentPrice * (1 + 0.025)).toFixed(2));
+    const tp = isLong
+      ? parseFloat((currentPrice * (1 + 0.060)).toFixed(2))
+      : parseFloat((currentPrice * (1 - 0.060)).toFixed(2));
 
-  // Deterministic Risk Controls: Sizing derived from AI confidence & safe bounds
-  let sizePct = 0.015;
-  if (aiDecision.confidence >= 80) sizePct = 0.02;
-  else if (aiDecision.confidence < 60) sizePct = 0.010;
-
-  const positionSizeUSD = Math.round(portfolioValue * sizePct);
-
-  if (aiDecision.action === 'BUY') {
-    if (hasOpenLong) {
-      blockReason = 'Execution blocked: Live long position already open';
-    } else if (recentClosedLiveLong) {
-      blockReason = 'Execution blocked: 15-minute re-entry cooldown active for long';
-    } else if (currentPrice <= 0) {
-      blockReason = 'Execution blocked: Invalid market price';
-    } else if (portfolioValue <= 0) {
-      blockReason = 'Execution blocked: Insufficient portfolio capital';
-    } else {
-      const sl = parseFloat((currentPrice * (1 - 0.025)).toFixed(2));
-      const tp = parseFloat((currentPrice * (1 + 0.060)).toFixed(2));
-
-      newTrade = {
-        id: `tr-sim-${Date.now().toString(36)}`,
-        symbol: 'BTCUSDT',
-        side: 'long',
-        strategy: 'momentum_long',
-        entryPrice: currentPrice,
-        positionSizePct: sizePct,
-        positionSizeUSD,
-        stopLoss: sl,
-        takeProfit: tp,
-        status: 'open',
-        openedAt: now,
-        explanation: `Qwen Decision (${aiDecision.confidence}% conf, ${aiDecision.provider}): ${aiDecision.reasoning}`,
-        regimeAtEntry: regime.regime,
-        regimeConfidence: regime.confidence,
-        fusedScoreAtEntry: regime.fusedScore,
-        source: 'live_simulated',
-        cycleId: cycleCount,
-      };
-    }
-  } else if (aiDecision.action === 'SELL') {
-    if (hasOpenShort) {
-      blockReason = 'Execution blocked: Live short position already open';
-    } else if (recentClosedLiveShort) {
-      blockReason = 'Execution blocked: 15-minute re-entry cooldown active for short';
-    } else if (currentPrice <= 0) {
-      blockReason = 'Execution blocked: Invalid market price';
-    } else if (portfolioValue <= 0) {
-      blockReason = 'Execution blocked: Insufficient portfolio capital';
-    } else {
-      const sl = parseFloat((currentPrice * (1 + 0.025)).toFixed(2));
-      const tp = parseFloat((currentPrice * (1 - 0.060)).toFixed(2));
-
-      newTrade = {
-        id: `tr-sim-${Date.now().toString(36)}`,
-        symbol: 'BTCUSDT',
-        side: 'short',
-        strategy: 'momentum_short',
-        entryPrice: currentPrice,
-        positionSizePct: sizePct,
-        positionSizeUSD,
-        stopLoss: sl,
-        takeProfit: tp,
-        status: 'open',
-        openedAt: now,
-        explanation: `Qwen Decision (${aiDecision.confidence}% conf, ${aiDecision.provider}): ${aiDecision.reasoning}`,
-        regimeAtEntry: regime.regime,
-        regimeConfidence: regime.confidence,
-        fusedScoreAtEntry: regime.fusedScore,
-        source: 'live_simulated',
-        cycleId: cycleCount,
-      };
-    }
+    newTrade = {
+      id: `tr-sim-${Date.now().toString(36)}`,
+      symbol: 'BTCUSDT',
+      side: isLong ? 'long' : 'short',
+      strategy: isLong ? 'momentum_long' : 'momentum_short',
+      entryPrice: currentPrice,
+      positionSizePct: riskVerdict.finalSizePct,
+      positionSizeUSD: riskVerdict.finalSizeUSD,
+      stopLoss: sl,
+      takeProfit: tp,
+      status: 'open',
+      openedAt: now,
+      explanation: `Qwen Decision (${aiDecision.confidence}% conf, ${aiDecision.provider}): ${aiDecision.reasoning}`,
+      regimeAtEntry: regime.regime,
+      regimeConfidence: regime.confidence,
+      fusedScoreAtEntry: regime.fusedScore,
+      source: 'live_simulated',
+      cycleId: cycleCount,
+    };
   } else {
-    blockReason = aiDecision.failed
-      ? `Fail-safe hold: ${aiDecision.failureReason}`
-      : `Autonomous HOLD: ${aiDecision.reasoning}`;
+    blockReason = riskVerdict.blockReason || (
+      aiDecision.failed
+        ? `Fail-safe hold: ${aiDecision.failureReason}`
+        : `Autonomous HOLD: ${aiDecision.reasoning}`
+    );
   }
 
   const updatedTrades = newTrade ? [newTrade, ...trades] : trades;
-  return { updatedTrades, newTrade, blockReason };
+  return { updatedTrades, newTrade, blockReason, riskVerdict, challengeResult };
 }
 
 // ── 9. CYCLE HANDLER ─────────────────────────────────────────────────────────
@@ -1258,7 +1313,7 @@ export function evaluateAndExecuteWithGuardrails(
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-cron-auth');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -1270,6 +1325,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       error: 'Method not allowed. Use GET.',
       timestamp: Date.now(),
     });
+  }
+
+  // ── AUTHORIZATION GATE (Step 8: Security) ──────────────────────────────────
+  const authHeader = (req.headers.authorization || req.headers['x-cron-auth'] || '') as string;
+  const isVercelCron = Boolean(req.headers['x-vercel-cron']);
+  const cycleSecret = process.env.AGENT_CYCLE_SECRET || process.env.CRON_SECRET || process.env.COLLECT_SECRET;
+  const isDev = process.env.NODE_ENV !== 'production';
+
+  if (!isDev && cycleSecret && !isVercelCron) {
+    const bearer = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (bearer !== cycleSecret) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Valid agent cycle authorization token required.',
+        timestamp: Date.now(),
+      });
+    }
   }
 
   try {
@@ -1377,13 +1449,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const livePerfForSizing = computeDetailedPerformance(afterClose, currentPrice, 'live_simulated');
     const livePortfolioValue = livePerfForSizing.portfolioValue; // $10,000 if 0 live trades
 
-    const { updatedTrades: finalTrades, newTrade, blockReason } = evaluateAndExecuteWithGuardrails(
+    const { updatedTrades: finalTrades, newTrade, blockReason, riskVerdict, challengeResult } = evaluateAndExecuteWithGuardrails(
       afterClose,
       aiDecision,
       regime,
       currentPrice,
       livePortfolioValue,
-      nextCycleCount
+      nextCycleCount,
+      now,
+      {
+        technical: technical.score,
+        volume: macro.score,
+        sentiment: sentiment.score,
+        onchain: onchain.score,
+        news: news.score,
+      },
+      {
+        rsi: technical.details?.rsi,
+        fundingRate: sentiment.details?.fundingRate,
+        volume24hUsd: macro.details?.volume24hUsd,
+        ema20: technical.details?.ema20,
+        ema50: technical.details?.ema50,
+      }
     );
 
     // 9. Reconcile performance metrics: strictly live_simulated for agent state
@@ -1415,6 +1502,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       executed: !!newTrade,
       blockReason: blockReason,
       tradeId: newTrade?.id || null,
+      redactedFiguresCount: aiDecision.redactedFiguresCount ?? 0,
+      provenanceScore: aiDecision.provenanceScore ?? 100,
     };
 
     const newState = {
@@ -1527,6 +1616,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         providerFailureReason: aiDecision.providerFailureReason || null,
         latencyMs: aiDecision.latencyMs || null,
         decisionType,
+        challengeJson: JSON.stringify(challengeResult),
+        riskJson: JSON.stringify(riskVerdict),
       })
     );
 
