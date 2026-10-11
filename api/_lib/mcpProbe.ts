@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { probeBitgetMcp, BITGET_MCP_ENDPOINT, MCP_PROTOCOL_VERSION } from './client';
+import { probeBitgetMcp, BITGET_MCP_ENDPOINT, MCP_PROTOCOL_VERSION } from './mcpClient';
 
 /**
  * Observable Bitget Agent Hub MCP Diagnostic Endpoint (/api/mcp/probe)

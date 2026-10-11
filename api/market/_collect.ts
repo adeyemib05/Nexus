@@ -14,7 +14,7 @@ import {
   saveSignalSnapshot,
   type HistoricalCandle,
   type HistoricalSignalSnapshot,
-} from '../db';
+} from '../_lib/db';
 
 // ── TYPES ──────────────────────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@ import {
   getDefaultHistoricalTrades,
   computeDetailedPerformance,
   type Trade,
-} from '../db';
+} from '../_lib/db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');

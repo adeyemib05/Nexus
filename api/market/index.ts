@@ -3,7 +3,7 @@ import {
   getHistoricalCandles,
   insertMarketCandles,
   getHistoricalIndicators,
-} from '../db';
+} from '../_lib/db';
 import { handleCollect } from './_collect';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

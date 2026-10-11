@@ -667,6 +667,22 @@ export interface HistoricalSignalSnapshot {
   regime: string;
   regimeConfidence: number;
   details?: Record<string, any>;
+  technicalScore?: number;
+  technicalConfidence?: number;
+  technicalStrength?: string;
+  liquidityScore?: number;
+  liquidityConfidence?: number;
+  liquidityStrength?: string;
+  sentimentScore?: number;
+  sentimentConfidence?: number;
+  sentimentStrength?: string;
+  onchainScore?: number;
+  onchainConfidence?: number;
+  onchainStrength?: string;
+  newsScore?: number;
+  newsConfidence?: number;
+  newsStrength?: string;
+  detailsJson?: string;
 }
 
 export async function saveSignalSnapshot(data: HistoricalSignalSnapshot): Promise<boolean> {

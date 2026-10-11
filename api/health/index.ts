@@ -1,13 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { kvGet } from '../db';
+import { kvGet } from '../_lib/db';
+import { probeBitgetMcp } from '../_lib/mcpClient';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
+  }
+
+  if (req.query.probe === 'mcp') {
+    const probeResult = await probeBitgetMcp();
+    return res.status(200).json(probeResult);
   }
 
   const now = Date.now();

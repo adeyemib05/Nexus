@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { validateAndRedactReasoning } from '../provenance/antiFabrication';
+import { validateAndRedactReasoning } from '../_lib/antiFabrication';
 
 interface DefensiveHedge {
   action: string;

@@ -3,7 +3,7 @@
  * Run with tsx or ts-node: npx tsx tests/test_anti_fabrication.ts
  */
 
-import { validateAndRedactReasoning, REDACTION_TOKEN, type TelemetryContext } from '../api/provenance/antiFabrication';
+import { validateAndRedactReasoning, REDACTION_TOKEN, type TelemetryContext } from '../api/_lib/antiFabrication';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {

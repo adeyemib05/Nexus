@@ -3,9 +3,9 @@
  * Deterministic Risk Cage and Bounded Adversarial Challenge
  */
 
-import { evaluateRiskCage, DEFAULT_RISK_POLICY } from '../api/risk/riskCage';
-import { evaluateAdversarialChallenge } from '../api/agent/adversarialChallenge';
-import type { Trade } from '../api/db';
+import { evaluateRiskCage, DEFAULT_RISK_POLICY } from '../api/_lib/riskCage';
+import { evaluateAdversarialChallenge } from '../api/_lib/adversarialChallenge';
+import type { Trade } from '../api/_lib/db';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {

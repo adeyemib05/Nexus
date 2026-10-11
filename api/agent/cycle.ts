@@ -16,10 +16,10 @@ import {
   type SignalStrength,
   type MarketRegime,
   type StrategyType,
-} from '../db';
-import { validateAndRedactReasoning } from '../provenance/antiFabrication';
-import { evaluateRiskCage, type RiskCageVerdict } from '../risk/riskCage';
-import { evaluateAdversarialChallenge, type AdversarialChallengeResult } from './adversarialChallenge';
+} from '../_lib/db';
+import { validateAndRedactReasoning } from '../_lib/antiFabrication';
+import { evaluateRiskCage, type RiskCageVerdict } from '../_lib/riskCage';
+import { evaluateAdversarialChallenge, type AdversarialChallengeResult } from '../_lib/adversarialChallenge';
 
 // ── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
 
@@ -988,22 +988,22 @@ export function sanitizeDecisionWithProvenance(
       rsi: typeof ctx.technical.details?.rsi === 'number' ? ctx.technical.details.rsi : undefined,
       ema20: typeof ctx.technical.details?.ema20 === 'number' ? ctx.technical.details.ema20 : undefined,
       ema50: typeof ctx.technical.details?.ema50 === 'number' ? ctx.technical.details.ema50 : undefined,
-      priceVsEma20: ctx.technical.details?.priceVsEma20,
+      priceVsEma20: typeof ctx.technical.details?.priceVsEma20 === 'string' || typeof ctx.technical.details?.priceVsEma20 === 'number' ? ctx.technical.details.priceVsEma20 : undefined,
       macd: typeof ctx.technical.details?.macd === 'number' ? ctx.technical.details.macd : undefined,
     },
     sentiment: {
       score: ctx.sentiment.score,
-      fundingRate: ctx.sentiment.details?.fundingRate,
-      fearGreedIndex: ctx.sentiment.details?.fearGreedIndex,
+      fundingRate: typeof ctx.sentiment.details?.fundingRate === 'number' ? ctx.sentiment.details.fundingRate : undefined,
+      fearGreedIndex: typeof ctx.sentiment.details?.fearGreedIndex === 'number' ? ctx.sentiment.details.fearGreedIndex : undefined,
     },
     onchain: {
       score: ctx.onchain.score,
-      networkFeeRate: ctx.onchain.details?.networkFeeRate,
-      tvlMomentum24h: ctx.onchain.details?.tvlMomentum24h,
+      networkFeeRate: typeof ctx.onchain.details?.networkFeeRate === 'number' ? ctx.onchain.details.networkFeeRate : undefined,
+      tvlMomentum24h: typeof ctx.onchain.details?.tvlMomentum24h === 'number' ? ctx.onchain.details.tvlMomentum24h : undefined,
     },
     macro: {
       score: ctx.macro.score,
-      volume24hUsd: ctx.macro.details?.volume24hUsd,
+      volume24hUsd: typeof ctx.macro.details?.volume24hUsd === 'number' ? ctx.macro.details.volume24hUsd : undefined,
     },
     regime: {
       fusedScore: ctx.regime.fusedScore,
@@ -1220,8 +1220,8 @@ export async function requestAiTradingDecision(ctx: AiDecisionContext): Promise<
   }
 
   // 3. Fail-Safe: Capital Preservation Mode (Synthesized from live quantitative engines)
-  const regimeScore = typeof ctx.fusedScore === 'number' ? ctx.fusedScore.toFixed(2) : '0.50';
-  const regimeLabel = (ctx.regime || 'neutral').replace(/_/g, ' ');
+  const regimeScore = typeof ctx.regime?.fusedScore === 'number' ? ctx.regime.fusedScore.toFixed(2) : '0.50';
+  const regimeLabel = typeof ctx.regime?.regime === 'string' ? ctx.regime.regime.replace(/_/g, ' ') : 'neutral';
   return fallbackHold(
     `Capital preservation hold: Autonomous regime (${regimeLabel}, score ${regimeScore}) verified under deterministic risk cage while external LLM reasoning deferred.`
   );
@@ -1480,11 +1480,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         news: news.score,
       },
       {
-        rsi: technical.details?.rsi,
-        fundingRate: sentiment.details?.fundingRate,
-        volume24hUsd: macro.details?.volume24hUsd,
-        ema20: technical.details?.ema20,
-        ema50: technical.details?.ema50,
+        rsi: typeof technical.details?.rsi === 'number' ? technical.details.rsi : undefined,
+        fundingRate: typeof sentiment.details?.fundingRate === 'number' ? sentiment.details.fundingRate : undefined,
+        volume24hUsd: typeof macro.details?.volume24hUsd === 'number' ? macro.details.volume24hUsd : undefined,
+        ema20: typeof technical.details?.ema20 === 'number' ? technical.details.ema20 : undefined,
+        ema50: typeof technical.details?.ema50 === 'number' ? technical.details.ema50 : undefined,
       }
     );
 

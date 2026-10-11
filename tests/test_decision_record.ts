@@ -12,7 +12,7 @@ import {
   type HistoricalSignalSnapshot,
   type HistoricalRiskEvent,
   type Trade,
-} from '../api/db';
+} from '../api/_lib/db';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {

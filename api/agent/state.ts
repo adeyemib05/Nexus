@@ -1,5 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { kvGet, getHistoricalAiDecisions, getHistoricalRiskEvents } from '../db';
+import {
+  kvGet,
+  getHistoricalAiDecisions,
+  getHistoricalRiskEvents,
+  getHistoricalSignals,
+  getDefaultHistoricalTrades,
+  getCanonicalDecisionRecord,
+  reconstructDecisionRecord,
+  type Trade,
+  type HistoricalSignalSnapshot,
+  type HistoricalRiskEvent,
+} from '../_lib/db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,6 +31,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const isHistory = req.url?.includes('/history') || req.query.sub === 'history';
   const isRiskHistory = req.url?.includes('/risk') || req.query.sub === 'risk-history';
+  const isDecision = req.url?.includes('/decision') || req.query.sub === 'decision' || Boolean(req.query.id);
+
+  if (isDecision) {
+    try {
+      const id = req.query.id ? String(req.query.id).trim() : null;
+      if (id) {
+        const record = await getCanonicalDecisionRecord(id);
+        if (!record) {
+          return res.status(404).json({ success: false, error: `Decision record not found for id: ${id}`, timestamp: Date.now() });
+        }
+        return res.status(200).json({ success: true, data: record, timestamp: Date.now() });
+      }
+
+      const symbol = String(req.query.symbol || 'BTCUSDT').toUpperCase().trim();
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || 20), 10) || 20, 1), 100);
+      const decisions = await getHistoricalAiDecisions(symbol, limit);
+      const signals = await getHistoricalSignals(symbol, limit * 2).catch(() => []);
+      const risks = await getHistoricalRiskEvents(symbol, limit * 2).catch(() => []);
+      const trades = (await kvGet('trades').catch(() => null)) || getDefaultHistoricalTrades();
+
+      const records = decisions.map((dec) => {
+        const matchedSignal = signals.find((s: HistoricalSignalSnapshot) => {
+          if (s.collectedAt && Math.abs(s.collectedAt - dec.timestamp) <= 10000) return true;
+          const canonicalMinute = Math.floor(dec.timestamp / 60000) * 60000;
+          return s.timestamp === canonicalMinute && Math.abs(s.timestamp - dec.timestamp) <= 60000;
+        }) || null;
+
+        const matchedRisk = dec.executed
+          ? null
+          : risks.find((r: HistoricalRiskEvent) => Math.abs(r.timestamp - dec.timestamp) <= 10000) || null;
+
+        const linkedTrade = dec.tradeId && Array.isArray(trades)
+          ? trades.find((t: Trade) => t.id === dec.tradeId) || null
+          : null;
+
+        return reconstructDecisionRecord(dec, matchedSignal, matchedRisk, linkedTrade);
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: records,
+        count: records.length,
+        symbol,
+        timestamp: Date.now(),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message, timestamp: Date.now() });
+    }
+  }
 
   if (isRiskHistory) {
     try {

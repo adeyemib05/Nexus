@@ -10,7 +10,7 @@ import {
   getCachedMcpSession,
   MCP_PROTOCOL_VERSION,
   BITGET_MCP_ENDPOINT,
-} from '../api/mcp/client';
+} from '../api/_lib/mcpClient';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {

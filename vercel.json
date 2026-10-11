@@ -78,7 +78,15 @@
     },
     {
       "source": "/api/decision/:id",
-      "destination": "/api/decision?id=:id"
+      "destination": "/api/agent/state?sub=decision&id=:id"
+    },
+    {
+      "source": "/api/decision",
+      "destination": "/api/agent/state?sub=decision"
+    },
+    {
+      "source": "/api/mcp/probe",
+      "destination": "/api/health?probe=mcp"
     },
     {
       "source": "/((?!api/).*)",

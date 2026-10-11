@@ -15,7 +15,7 @@
  * - maxPriceAgeMs: 60,000ms (1 minute stale data ceiling)
  */
 
-import type { Trade } from '../db';
+import type { Trade } from './db';
 
 export interface RiskPolicy {
   maxPositionPct: number;
