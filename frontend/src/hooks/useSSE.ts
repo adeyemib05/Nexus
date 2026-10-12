@@ -7,6 +7,7 @@ import {
   getCurrentRegime,
   getTrades,
   getPerformance,
+  triggerAgentCycle,
 } from '../lib/api';
 
 const TICKER_INTERVAL_VISIBLE_MS = 3500;
@@ -73,6 +74,10 @@ export function useSSE() {
             if (res.data.currentRegime.signals) {
               store.setSignals(res.data.currentRegime.signals);
             }
+          }
+          // Self-healing browser cadence: if agent is running and hasn't cycled in >=60s, trigger a cycle
+          if (res.data.status === 'running' && (!res.data.lastCycleAt || Date.now() - res.data.lastCycleAt >= 60000)) {
+            triggerAgentCycle().catch(() => {});
           }
         }
       } catch (err) {

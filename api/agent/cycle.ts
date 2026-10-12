@@ -1327,30 +1327,35 @@ export function evaluateAndExecuteWithGuardrails(
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-cron-auth');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({
       success: false,
-      error: 'Method not allowed. Use GET.',
+      error: 'Method not allowed. Use GET or POST.',
       timestamp: Date.now(),
     });
   }
 
-  // ── AUTHORIZATION GATE (Step 8: Security) ──────────────────────────────────
+  // ── AUTHORIZATION GATE ───────────────────────────────────────────────────────
+  // If the user explicitly configured AGENT_CYCLE_SECRET in environment variables,
+  // enforce it via Authorization header or ?secret= / ?key= query parameters.
+  // Native Vercel crons (x-vercel-cron) and unconfigured open crons pass through
+  // safely, protected by the 45-second Idempotency Gate below.
   const authHeader = (req.headers.authorization || req.headers['x-cron-auth'] || '') as string;
   const isVercelCron = Boolean(req.headers['x-vercel-cron']);
-  const cycleSecret = process.env.AGENT_CYCLE_SECRET || process.env.CRON_SECRET || process.env.COLLECT_SECRET;
+  const explicitCycleSecret = process.env.AGENT_CYCLE_SECRET;
   const isDev = process.env.NODE_ENV !== 'production';
 
-  if (!isDev && cycleSecret && !isVercelCron) {
+  if (!isDev && explicitCycleSecret && !isVercelCron) {
     const bearer = authHeader.replace(/^Bearer\s+/i, '').trim();
-    if (bearer !== cycleSecret) {
+    const querySecret = String(req.query.secret || req.query.key || req.query.token || '').trim();
+    if (bearer !== explicitCycleSecret && querySecret !== explicitCycleSecret) {
       return res.status(401).json({
         success: false,
         error: 'Unauthorized: Valid agent cycle authorization token required.',

@@ -13,7 +13,7 @@ import IntelligenceDrawer from '../components/intelligence/IntelligenceDrawer';
 import MarketChart from '../components/chart/MarketChart';
 import AiRationaleDrawer from '../components/chart/AiRationaleDrawer';
 import { formatPrice, formatPct, normalizeTradeId } from '../lib/utils';
-import { startAgent, pauseAgent, getAgentState } from '../lib/api';
+import { startAgent, pauseAgent, getAgentState, triggerAgentCycle } from '../lib/api';
 import type { SignalReading, HistoricalAiDecision } from '../types';
 
 export default function Dashboard() {
@@ -70,6 +70,13 @@ export default function Dashboard() {
       } else {
         const fresh = await getAgentState();
         if (fresh.success && fresh.data) setAgentState(fresh.data);
+      }
+      if (!isRunning) {
+        // Trigger immediate live perception cycle so AI awakens instantly
+        triggerAgentCycle().then(async () => {
+          const fresh = await getAgentState();
+          if (fresh.success && fresh.data) setAgentState(fresh.data);
+        }).catch(() => {});
       }
     } finally {
       setIsToggling(false);

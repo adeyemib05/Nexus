@@ -154,6 +154,15 @@ export async function pauseAgent(): Promise<ApiResponse<AgentState>> {
   }
 }
 
+export async function triggerAgentCycle(): Promise<ApiResponse<any>> {
+  try {
+    const res = await api.get('/agent/cycle');
+    return res.data;
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Failed to trigger agent cycle', timestamp: Date.now() };
+  }
+}
+
 export async function runBacktest(params: { symbol: string; granularity: string; days: number }): Promise<ApiResponse<BacktestResult>> {
   try {
     const res = await api.post('/backtest/run', params);

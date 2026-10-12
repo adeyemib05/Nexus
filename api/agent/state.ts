@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   kvGet,
+  kvSet,
   getHistoricalAiDecisions,
   getHistoricalRiskEvents,
   getHistoricalSignals,
@@ -14,17 +15,34 @@ import {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({
       success: false,
-      error: 'Method not allowed. Use GET.',
+      error: 'Method not allowed. Use GET or POST.',
+      timestamp: Date.now(),
+    });
+  }
+
+  const action = String(req.query.action || (req.body && req.body.action) || '').toLowerCase();
+  if (action === 'start' || action === 'pause') {
+    const currentState = (await kvGet('agentState')) || {};
+    const newStatus = action === 'start' ? 'running' : 'paused';
+    const updatedState = {
+      ...currentState,
+      status: newStatus,
+      startedAt: action === 'start' ? (currentState.startedAt || Date.now()) : currentState.startedAt,
+    };
+    await kvSet('agentState', updatedState);
+    return res.status(200).json({
+      success: true,
+      data: updatedState,
       timestamp: Date.now(),
     });
   }

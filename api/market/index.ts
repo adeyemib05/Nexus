@@ -6,6 +6,18 @@ import {
 } from '../_lib/db';
 import { handleCollect } from './_collect';
 
+function toBitgetGranularity(tf: string): string {
+  const norm = tf.toLowerCase();
+  if (norm === '1m' || norm === '1min') return '1min';
+  if (norm === '5m' || norm === '5min') return '5min';
+  if (norm === '15m' || norm === '15min') return '15min';
+  if (norm === '30m' || norm === '30min') return '30min';
+  if (norm === '1h') return '1h';
+  if (norm === '4h') return '4h';
+  if (norm === '1d' || norm === '1day') return '1day';
+  return '1h';
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -49,15 +61,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Default or sub === 'candles'
     let candles = await getHistoricalCandles(symbol, timeframe, limit, from, to);
 
-    // Warm-up fallback from Bitget if database hasn't ingested this timeframe yet
-    if (candles.length === 0) {
+    // Warm-up or replenishment fallback from Bitget if database hasn't ingested enough candles for this timeframe
+    if (candles.length < 15) {
       try {
+        const bitgetGranularity = toBitgetGranularity(timeframe);
+        const fetchLimit = Math.max(limit, 100);
         const bitgetRes = await fetch(
-          `https://api.bitget.com/api/v2/spot/market/candles?symbol=${symbol}&granularity=${timeframe}&limit=${limit}`
+          `https://api.bitget.com/api/v2/spot/market/candles?symbol=${symbol}&granularity=${bitgetGranularity}&limit=${fetchLimit}`
         );
         if (bitgetRes.ok) {
           const json = (await bitgetRes.json()) as any;
-          if (json.code === '00000' && Array.isArray(json.data)) {
+          if (json.code === '00000' && Array.isArray(json.data) && json.data.length > 0) {
             const fetchedCandles = json.data.map((c: any) => ({
               symbol,
               timeframe,
@@ -66,10 +80,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               high: parseFloat(c[2]),
               low: parseFloat(c[3]),
               close: parseFloat(c[4]),
-              volume: parseFloat(c[5]),
-            }));
+              volume: parseFloat(c[5] || '0'),
+            })).filter((c: any) => c.timestamp > 0 && c.close > 0);
             await insertMarketCandles(fetchedCandles);
-            candles = fetchedCandles.sort((a: any, b: any) => a.timestamp - b.timestamp);
+            candles = await getHistoricalCandles(symbol, timeframe, limit, from, to);
+            if (candles.length === 0) {
+              candles = fetchedCandles.sort((a: any, b: any) => a.timestamp - b.timestamp);
+            }
           }
         }
       } catch (fetchErr) {
