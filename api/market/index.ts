@@ -62,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let candles = await getHistoricalCandles(symbol, timeframe, limit, from, to);
 
     // Warm-up or replenishment fallback from Bitget if database hasn't ingested enough candles for this timeframe
-    if (candles.length < 15) {
+    if (candles.length < 50) {
       try {
         const bitgetGranularity = toBitgetGranularity(timeframe);
         const fetchLimit = Math.max(limit, 100);
@@ -82,7 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               close: parseFloat(c[4]),
               volume: parseFloat(c[5] || '0'),
             })).filter((c: any) => c.timestamp > 0 && c.close > 0);
-            await insertMarketCandles(fetchedCandles);
+            await insertMarketCandles(fetchedCandles, { deltaOnly: false });
             candles = await getHistoricalCandles(symbol, timeframe, limit, from, to);
             if (candles.length === 0) {
               candles = fetchedCandles.sort((a: any, b: any) => a.timestamp - b.timestamp);

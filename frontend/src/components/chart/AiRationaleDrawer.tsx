@@ -31,7 +31,7 @@ import type {
   MarketRegime,
 } from '../../types';
 import { REGIME_CONFIG } from '../../types';
-import { formatPrice, formatTimestamp, normalizeTradeId } from '../../lib/utils';
+import { formatPrice, formatTimestamp, normalizeTradeId, normalizeNullableString } from '../../lib/utils';
 import { getSignalsHistory, getHistoricalRiskEvents } from '../../lib/api';
 
 export interface AiRationaleDrawerProps {
@@ -396,12 +396,12 @@ export default function AiRationaleDrawer({
     decision.provider === 'fallback_hold' ||
     decision.providerSuccess === false;
 
-  // Actual telemetry fields (strictly avoiding hardcoded identities)
-  const actualProvider = decision.provider || 'N/A';
-  const actualAttempted = decision.providerAttempted || decision.provider || 'N/A';
-  const actualLatency = decision.latencyMs != null ? `${decision.latencyMs}ms` : 'N/A';
-  const actualDecisionType = decision.decisionType || (isFailsafeHold ? 'failsafe_hold' : 'model');
-  const failureReason = decision.providerFailureReason || null;
+  // Actual telemetry fields (strictly avoiding hardcoded identities or object leakages)
+  const actualProvider = normalizeNullableString(decision.provider) || 'N/A';
+  const actualAttempted = normalizeNullableString(decision.providerAttempted) || actualProvider;
+  const actualLatency = typeof decision.latencyMs === 'number' ? `${decision.latencyMs}ms` : 'N/A';
+  const actualDecisionType = normalizeNullableString(decision.decisionType) || (isFailsafeHold ? 'failsafe_hold' : 'model');
+  const failureReason = normalizeNullableString(decision.providerFailureReason);
 
   // Unified Risk Status Classification
   const riskClassification = classifyRiskStatus(decision, resolvedRiskEvent);
@@ -673,7 +673,7 @@ export default function AiRationaleDrawer({
                 </div>
 
                 {/* Diagnostic Failure Details if Present */}
-                {failureReason && (
+                {typeof failureReason === 'string' && failureReason.length > 0 && (
                   <div className="p-3 rounded-lg bg-nexus-bear/10 border border-nexus-bear/30 text-xs font-mono text-nexus-bear space-y-1">
                     <span className="stat-label text-[10px] text-nexus-bear block uppercase">
                       Provider Diagnostic:
@@ -684,7 +684,7 @@ export default function AiRationaleDrawer({
 
                 {/* Concise Model Rationale (Stored output only, no chain-of-thought) */}
                 <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-xs font-mono text-nexus-textPrimary leading-relaxed">
-                  "{decision.reasoning}"
+                  "{typeof decision.reasoning === 'string' ? decision.reasoning : String(decision.reasoning ?? '')}"
                 </div>
 
                 {/* Quantitative Claim Provenance Validation */}
@@ -1061,7 +1061,7 @@ export default function AiRationaleDrawer({
                     </div>
                   </div>
 
-                  {riskClassification.blockReason && (
+                  {riskClassification.blockReason && typeof riskClassification.blockReason === 'string' && (
                     <div className="pt-2 border-t border-white/[0.05] text-[11px]">
                       <span className="text-nexus-textMuted block mb-0.5 uppercase">Block Enforcement Reason:</span>
                       <p className="text-nexus-bear bg-nexus-bear/10 p-2.5 rounded border border-nexus-bear/20 leading-relaxed">

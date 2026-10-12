@@ -30,6 +30,7 @@ interface ChartHUDProps {
   timeframe?: string;
   isHovered?: boolean;
   className?: string;
+  onSelectDecision?: (decisionId: string) => void;
 }
 
 export const ChartHUD: React.FC<ChartHUDProps> = React.memo(({
@@ -38,6 +39,7 @@ export const ChartHUD: React.FC<ChartHUDProps> = React.memo(({
   timeframe = '1m',
   isHovered = false,
   className = '',
+  onSelectDecision,
 }) => {
   if (!data || data.open === null || data.close === null) {
     return (
@@ -169,8 +171,11 @@ export const ChartHUD: React.FC<ChartHUDProps> = React.memo(({
         {aiDecision && (
           <div className="flex items-center gap-1.5 pl-2 border-l border-white/[0.08]">
             <Brain size={11} className="text-nexus-accent" />
-            <span
-              className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase border ${
+            <button
+              type="button"
+              onClick={() => onSelectDecision && onSelectDecision(aiDecision.id)}
+              title="Click to inspect this AI decision rationale"
+              className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase border cursor-pointer hover:brightness-125 transition-all ${
                 aiDecision.executed
                   ? aiDecision.action === 'BUY'
                     ? 'bg-nexus-bull/15 text-nexus-bull border-nexus-bull/30'
@@ -181,7 +186,7 @@ export const ChartHUD: React.FC<ChartHUDProps> = React.memo(({
               }`}
             >
               AI {aiDecision.action} ({Math.round(aiDecision.confidence <= 1 ? aiDecision.confidence * 100 : aiDecision.confidence)}%)
-            </span>
+            </button>
           </div>
         )}
       </div>

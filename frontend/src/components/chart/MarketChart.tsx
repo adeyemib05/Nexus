@@ -480,21 +480,34 @@ export default function MarketChart({
   useEffect(() => {
     if (!candleSeriesRef.current || displayCandles.length === 0) return;
 
-    // Convert candles to Lightweight Charts format
-    const formattedCandles: CandlestickData[] = displayCandles.map((c) => ({
-      time: Math.floor(c.timestamp / 1000) as UTCTimestamp,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }));
+    // Convert candles to Lightweight Charts format, ensuring strict ascending order and uniqueness by second
+    const candleMap = new Map<number, HistoricalCandle>();
+    for (const c of displayCandles) {
+      const sec = Math.floor(c.timestamp / 1000);
+      candleMap.set(sec, c);
+    }
+    const sortedCandles = Array.from(candleMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map((entry) => entry[1]);
+
+    const formattedCandles: CandlestickData[] = sortedCandles.map((c) => {
+      const sec = Math.floor(c.timestamp / 1000);
+      const isFlat = c.high === c.low;
+      return {
+        time: sec as UTCTimestamp,
+        open: c.open,
+        high: isFlat ? c.high + 0.05 : c.high,
+        low: isFlat ? c.low - 0.05 : c.low,
+        close: c.close,
+      };
+    });
 
     candleSeriesRef.current.setData(formattedCandles);
 
     // Volume
     if (volumeSeriesRef.current) {
       if (showVolume) {
-        const volData: HistogramData[] = displayCandles.map((c) => ({
+        const volData: HistogramData[] = sortedCandles.map((c) => ({
           time: Math.floor(c.timestamp / 1000) as UTCTimestamp,
           value: c.volume,
           color: c.close >= c.open ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)',
@@ -567,79 +580,116 @@ export default function MarketChart({
       ema50SeriesRef.current.setData(showEMA50 ? ema50LineData : []);
     }
 
-    // 5. Point-in-Time AI Decision Markers with Full Execution & Risk Classification
+    // 5. Point-in-Time AI Decision Markers with Full Execution & Risk Classification (Deduplicated per Bar)
     const markers: SeriesMarker<UTCTimestamp>[] = [];
     const candleTimeSet = new Set<number>(displayCandles.map((c) => Math.floor(c.timestamp / 1000)));
 
     if (showAiMarkers && aiDecisions.length > 0) {
+      // Group decisions by anchorSec to prevent marker collision/smearing on the same candle
+      const decisionsByBucket = new Map<number, HistoricalAiDecision[]>();
       aiDecisions.forEach((d) => {
         const bucketAnchorMs = getBucketAnchor(d.timestamp, timeframe);
         const anchorSec = Math.floor(bucketAnchorMs / 1000);
-
-        // Only place marker if containing candle bucket exists in current display range
         if (candleTimeSet.has(anchorSec)) {
-          const classification = classifyRiskStatus(d, null);
-          const isBuy = d.action === 'BUY';
-          const isSell = d.action === 'SELL';
-          const isFailsafe = d.decisionType === 'failsafe_hold' || d.provider === 'fallback_hold' || classification.resultTitle.includes('Failsafe');
-          const isBlocked = classification.status === 'BLOCKED';
-          const isExecuted = classification.status === 'EXECUTED';
-          const isSelected = selectedDecision?.id === d.id;
-
-          let markerColor = '#64748B'; // Default neutral slate
-          let markerShape: 'circle' | 'arrowUp' | 'arrowDown' = 'circle';
-          let markerPos: 'aboveBar' | 'belowBar' | 'inBar' = 'inBar';
-          let markerText = `HOLD`;
-
-          if (isExecuted) {
-            if (isBuy) {
-              markerColor = '#10B981'; // Green
-              markerShape = 'arrowUp';
-              markerPos = 'belowBar';
-              markerText = `BUY (Executed)`;
-            } else if (isSell) {
-              markerColor = '#EF4444'; // Red
-              markerShape = 'arrowDown';
-              markerPos = 'aboveBar';
-              markerText = `SELL (Executed)`;
-            }
-          } else if (isBlocked) {
-            markerColor = '#F97316'; // Orange / Warning
-            markerShape = isBuy ? 'arrowUp' : 'arrowDown';
-            markerPos = isBuy ? 'belowBar' : 'aboveBar';
-            markerText = isBuy ? `BUY (Blocked)` : `SELL (Blocked)`;
-          } else if (isFailsafe) {
-            markerColor = '#F59E0B'; // Amber
-            markerShape = 'circle';
-            markerPos = 'aboveBar';
-            markerText = `HOLD (Failsafe)`;
-          } else if (d.action === 'HOLD') {
-            markerColor = '#94A3B8'; // Slate
-            markerShape = 'circle';
-            markerPos = 'inBar';
-            const confPct = Math.round(d.confidence <= 1 ? d.confidence * 100 : d.confidence);
-            markerText = `HOLD (${confPct}%)`;
-          } else {
-            markerColor = '#94A3B8';
-            markerShape = isBuy ? 'arrowUp' : 'arrowDown';
-            markerPos = isBuy ? 'belowBar' : 'aboveBar';
-            markerText = `${d.action} (Unfilled)`;
-          }
-
-          if (isSelected) {
-            markerText = `★ ${markerText} [Active]`;
-          }
-
-          markers.push({
-            time: anchorSec as UTCTimestamp,
-            position: markerPos,
-            color: isSelected ? '#00F0FF' : markerColor,
-            shape: markerShape,
-            text: markerText,
-            id: `ai_${d.id}`,
-            size: isSelected ? 2 : 1,
-          });
+          const list = decisionsByBucket.get(anchorSec) || [];
+          list.push(d);
+          decisionsByBucket.set(anchorSec, list);
         }
+      });
+
+      // For each bucket, pick the single most authoritative decision to represent on the candle
+      decisionsByBucket.forEach((bucketDecisions, anchorSec) => {
+        let primaryDecision = bucketDecisions[0];
+        const selectedMatch = bucketDecisions.find((d) => selectedDecision?.id === d.id);
+        if (selectedMatch) {
+          primaryDecision = selectedMatch;
+        } else {
+          const executed = bucketDecisions.find((d) => {
+            const c = classifyRiskStatus(d, null);
+            return c.status === 'EXECUTED';
+          });
+          if (executed) {
+            primaryDecision = executed;
+          } else {
+            const blocked = bucketDecisions.find((d) => {
+              const c = classifyRiskStatus(d, null);
+              return c.status === 'BLOCKED';
+            });
+            if (blocked) {
+              primaryDecision = blocked;
+            } else {
+              primaryDecision = bucketDecisions.reduce((prev, curr) =>
+                curr.timestamp > prev.timestamp ? curr : prev
+              );
+            }
+          }
+        }
+
+        const d = primaryDecision;
+        const classification = classifyRiskStatus(d, null);
+        const isBuy = d.action === 'BUY';
+        const isSell = d.action === 'SELL';
+        const isFailsafe =
+          d.decisionType === 'failsafe_hold' ||
+          d.provider === 'fallback_hold' ||
+          classification.resultTitle.includes('Failsafe');
+        const isBlocked = classification.status === 'BLOCKED';
+        const isExecuted = classification.status === 'EXECUTED';
+        const isSelected = selectedDecision?.id === d.id;
+
+        let markerColor = '#64748B'; // Default neutral slate
+        let markerShape: 'circle' | 'arrowUp' | 'arrowDown' = 'circle';
+        let markerPos: 'aboveBar' | 'belowBar' | 'inBar' = 'inBar';
+        let markerText = `HOLD`;
+
+        if (isExecuted) {
+          if (isBuy) {
+            markerColor = '#10B981'; // Green
+            markerShape = 'arrowUp';
+            markerPos = 'belowBar';
+            markerText = `BUY (Executed)`;
+          } else if (isSell) {
+            markerColor = '#EF4444'; // Red
+            markerShape = 'arrowDown';
+            markerPos = 'aboveBar';
+            markerText = `SELL (Executed)`;
+          }
+        } else if (isBlocked) {
+          markerColor = '#F97316'; // Orange / Warning
+          markerShape = isBuy ? 'arrowUp' : 'arrowDown';
+          markerPos = isBuy ? 'belowBar' : 'aboveBar';
+          markerText = isBuy ? `BUY (Blocked)` : `SELL (Blocked)`;
+        } else if (isFailsafe) {
+          markerColor = '#F59E0B'; // Amber
+          markerShape = 'circle';
+          markerPos = 'aboveBar';
+          markerText = `HOLD (Failsafe)`;
+        } else if (d.action === 'HOLD') {
+          markerColor = '#94A3B8'; // Slate
+          markerShape = 'circle';
+          markerPos = 'inBar';
+          const confPct = Math.round(d.confidence <= 1 ? d.confidence * 100 : d.confidence);
+          markerText = `HOLD (${confPct}%)`;
+        } else {
+          markerColor = '#94A3B8';
+          markerShape = isBuy ? 'arrowUp' : 'arrowDown';
+          markerPos = isBuy ? 'belowBar' : 'aboveBar';
+          markerText = `${d.action} (Unfilled)`;
+        }
+
+        if (isSelected) {
+          markerText = `★ ${markerText} [Active]`;
+        }
+
+        markers.push({
+          time: anchorSec as UTCTimestamp,
+          position: markerPos,
+          color: isSelected ? '#00F0FF' : markerColor,
+          shape: markerShape,
+          text: markerText,
+          id: `ai_${d.id}`,
+          size: isSelected ? 2 : 1,
+        });
       });
     }
 
@@ -907,6 +957,13 @@ export default function MarketChart({
         symbol={symbol}
         timeframe={timeframe}
         isHovered={isHudHovered}
+        onSelectDecision={(id) => {
+          const match = aiDecisions.find((d) => d.id === id);
+          if (match) {
+            handleSelectDecision(match);
+            setIsAiDrawerOpen(true);
+          }
+        }}
       />
 
       {/* 3. Active Inspector Chip when Drawer is Open */}

@@ -70,6 +70,10 @@ export function normalizeNullableString(val: unknown): string | null {
     if (record.type === 'null') {
       return null;
     }
+    if ('value' in record && typeof record.value === 'string') {
+      const trimmed = record.value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
   }
   return null;
 }

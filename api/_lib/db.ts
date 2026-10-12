@@ -319,17 +319,23 @@ function formatSqlArg(val: any): { type: string; value?: any } {
 
 function extractCellValue(cell: any): any {
   if (cell === null || cell === undefined) return null;
-  if (typeof cell === 'object' && 'value' in cell) {
-    const val = cell.value;
-    if (val === null || val === undefined) return null;
-    if (cell.type === 'integer') {
-      const num = Number(val);
-      return Number.isSafeInteger(num) ? num : val;
+  if (typeof cell === 'object') {
+    if (cell.type === 'null') return null;
+    if ('value' in cell) {
+      const val = cell.value;
+      if (val === null || val === undefined) return null;
+      if (cell.type === 'integer') {
+        const num = Number(val);
+        return Number.isSafeInteger(num) ? num : val;
+      }
+      if (cell.type === 'float') {
+        return Number(val);
+      }
+      return val;
     }
-    if (cell.type === 'float') {
-      return Number(val);
+    if (cell.type && Object.keys(cell).length === 1) {
+      return null;
     }
-    return val;
   }
   return cell;
 }

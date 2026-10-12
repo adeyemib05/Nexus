@@ -15,7 +15,44 @@ import type {
   HistoricalRiskEvent,
   DecisionRecord,
 } from '../types';
-import { normalizeTradeId } from './utils';
+import { normalizeTradeId, normalizeNullableString } from './utils';
+
+export function sanitizeAiDecision(d: any): HistoricalAiDecision {
+  if (!d || typeof d !== 'object') return d;
+  return {
+    ...d,
+    id: typeof d.id === 'string' ? d.id : String(d.id || ''),
+    symbol: typeof d.symbol === 'string' ? d.symbol : 'BTCUSDT',
+    action: typeof d.action === 'string' ? d.action : 'HOLD',
+    strategy: typeof d.strategy === 'string' ? d.strategy : 'capital_protection',
+    reasoning: typeof d.reasoning === 'string' ? d.reasoning : String(d.reasoning || ''),
+    marketPrice: typeof d.marketPrice === 'number' ? d.marketPrice : Number(d.marketPrice || 0),
+    confidence: typeof d.confidence === 'number' ? d.confidence : Number(d.confidence || 0),
+    fusedScore: typeof d.fusedScore === 'number' ? d.fusedScore : (d.fusedScore ? Number(d.fusedScore) : 0),
+    regime: typeof d.regime === 'string' ? d.regime : 'ranging',
+    executed: Boolean(d.executed),
+    blockReason: normalizeNullableString(d.blockReason),
+    tradeId: normalizeTradeId(d.tradeId),
+    provider: normalizeNullableString(d.provider) || 'fallback_hold',
+    providerAttempted: normalizeNullableString(d.providerAttempted) || undefined,
+    providerFailureReason: normalizeNullableString(d.providerFailureReason),
+    decisionType: (normalizeNullableString(d.decisionType) as any) || undefined,
+    latencyMs: typeof d.latencyMs === 'number' ? d.latencyMs : undefined,
+    challengeJson: typeof d.challengeJson === 'string' ? d.challengeJson : (d.challengeJson && typeof d.challengeJson === 'object' && d.challengeJson.type === 'null' ? null : d.challengeJson),
+    riskJson: typeof d.riskJson === 'string' ? d.riskJson : (d.riskJson && typeof d.riskJson === 'object' && d.riskJson.type === 'null' ? null : d.riskJson),
+    detailsJson: typeof d.detailsJson === 'string' ? d.detailsJson : (d.detailsJson && typeof d.detailsJson === 'object' && d.detailsJson.type === 'null' ? null : d.detailsJson),
+  };
+}
+
+export function sanitizeRiskEvent(e: any): HistoricalRiskEvent {
+  if (!e || typeof e !== 'object') return e;
+  return {
+    ...e,
+    tradeId: normalizeTradeId(e.tradeId),
+    blockReason: normalizeNullableString(e.blockReason),
+    detailsJson: typeof e.detailsJson === 'string' ? e.detailsJson : (e.detailsJson && typeof e.detailsJson === 'object' && e.detailsJson.type === 'null' ? null : e.detailsJson),
+  };
+}
 
 const BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) || '';
 
@@ -40,6 +77,9 @@ export async function getHealth(): Promise<ApiResponse<{ status: string; version
 export async function getAgentState(): Promise<ApiResponse<AgentState>> {
   try {
     const res = await api.get('/agent/state');
+    if (res.data?.data?.lastAiDecision) {
+      res.data.data.lastAiDecision = sanitizeAiDecision(res.data.data.lastAiDecision);
+    }
     return res.data;
   } catch (error: any) {
     return { success: false, error: error.message || 'Failed to get agent state', timestamp: Date.now() };
@@ -234,10 +274,7 @@ export async function getAiDecisionsHistory(params?: {
   try {
     const res = await api.get('/agent/history', { params });
     if (res.data?.data && Array.isArray(res.data.data)) {
-      res.data.data = res.data.data.map((d: any) => ({
-        ...d,
-        tradeId: normalizeTradeId(d.tradeId),
-      }));
+      res.data.data = res.data.data.map(sanitizeAiDecision);
     }
     return res.data;
   } catch (error: any) {
@@ -254,10 +291,7 @@ export async function getHistoricalRiskEvents(params?: {
   try {
     const res = await api.get('/risk/history', { params });
     if (res.data?.data && Array.isArray(res.data.data)) {
-      res.data.data = res.data.data.map((e: any) => ({
-        ...e,
-        tradeId: normalizeTradeId(e.tradeId),
-      }));
+      res.data.data = res.data.data.map(sanitizeRiskEvent);
     }
     return res.data;
   } catch (error: any) {
